@@ -12,7 +12,7 @@ use nom_locate::{position, LocatedSpan};
 
 type Span<'a> = LocatedSpan<&'a str>;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Annotation<'a> {
     pub start: Span<'a>,
     pub end: Span<'a>,
@@ -56,34 +56,6 @@ pub fn mk_if<Ann>(
         pred_expr: Box::new(pred_expr),
         then_expr: Box::new(then_expr),
         else_expr: Box::new(else_expr),
-    }
-}
-
-fn void_expr<Ann>(expr: Expr<Ann>) -> Expr<()> {
-    match expr {
-        Expr::EPrim { prim, .. } => Expr::EPrim { ann: (), prim },
-        Expr::EIf {
-            pred_expr,
-            then_expr,
-            else_expr,
-            ..
-        } => Expr::EIf {
-            ann: (),
-            pred_expr: Box::new(void_expr(*pred_expr)),
-            then_expr: Box::new(void_expr(*then_expr)),
-            else_expr: Box::new(void_expr(*else_expr)),
-        },
-        Expr::EAnn { ty, expr, .. } => Expr::EAnn {
-            ann: (),
-            ty: void_type(ty),
-            expr: Box::new(void_expr(*expr)),
-        },
-    }
-}
-
-fn void_type<Ann>(ty: Type<Ann>) -> Type<()> {
-    match ty {
-        Type::TPrim { type_prim, .. } => Type::TPrim { ann: (), type_prim },
     }
 }
 
@@ -131,49 +103,10 @@ fn parse_my_int(input: Span) -> IResult<Span, Expr<Annotation>> {
     Ok((input, int(annotation, i64::from(int_val))))
 }
 
-#[test]
-fn test_parse() {
-    let tests = vec![
-        (" 1", int((), 1)),
-        ("1", int((), 1)),
-        ("11", int((), 11)),
-        ("    11dog", int((), 11)),
-        (" True", bool((), true)),
-        ("False", bool((), false)),
-        ("    True100", bool((), true)),
-        (
-            "if 1 then False else True",
-            mk_if((), int((), 1), bool((), false), bool((), true)),
-        ),
-        (
-            "if True then 1 else 2",
-            mk_if((), bool((), true), int((), 1), int((), 2)),
-        ),
-        (
-            "(1: Int64)",
-            Expr::EAnn {
-                ann: (),
-                ty: Type::TPrim {
-                    ann: (),
-                    type_prim: TypePrim::TInt64,
-                },
-                expr: Box::new(int((), 1)),
-            },
-        ),
-    ];
-
-    for (input, expect) in tests {
-        let result = parse_my_expr(input.into());
-        dbg!(&result);
-        let voided_result = result.map(|(_, expr)| void_expr(expr));
-        assert_eq!(voided_result, Ok(expect))
-    }
-}
-
 fn parse_ann_internal(input: Span) -> IResult<Span, (Type<Annotation>, Expr<Annotation>)> {
     let (input, _) = tag("(")(input)?;
 
-    let (input, expr) = parse_my_expr(input)?;
+    let (input, expr) = parse_expr(input)?;
 
     let (input, _) = ws(tag(":"))(input)?;
 
@@ -199,10 +132,15 @@ fn parse_ann(input: Span) -> IResult<Span, Expr<Annotation>> {
 
 // Need to add more types as we need them pls
 fn parse_type_prim(input: Span) -> IResult<Span, TypePrim> {
-    map(tag("Int64"), |_| TypePrim::TInt64)(input)
+    let boolean = map(tag("Boolean"), |_| TypePrim::TBoolean);
+    let int_8 = map(tag("Int8"), |_| TypePrim::TInt8);
+    let int_16 = map(tag("Int16 "), |_| TypePrim::TInt16);
+    let int_32 = map(tag("Int32"), |_| TypePrim::TInt32);
+    let int_64 = map(tag("Int64"), |_| TypePrim::TInt64);
+    ws(alt((boolean, int_8, int_16, int_32, int_64)))(input)
 }
 
-fn parse_type(input: Span) -> IResult<Span, Type<Annotation>> {
+pub fn parse_type(input: Span) -> IResult<Span, Type<Annotation>> {
     let (input, (ann, type_prim)) = ws(with_annotation(parse_type_prim))(input)?;
     Ok((input, Type::TPrim { ann, type_prim }))
 }
@@ -254,28 +192,48 @@ fn parse_my_bool(input: Span) -> IResult<Span, Expr<Annotation>> {
     alt((parse_true, parse_false))(input)
 }
 
-pub fn parse_if_internal(
-    input: Span,
-) -> IResult<Span, (Expr<Annotation>, Expr<Annotation>, Expr<Annotation>)> {
-    let (input, _) = tag("if")(input)?;
-    let (input, pred_expr) = parse_my_expr(input)?;
-
-    let (input, _) = ws(tag("then"))(input)?;
-    let (input, then_expr) = parse_my_expr(input)?;
-
-    let (input, _) = ws(tag("else"))(input)?;
-    let (input, else_expr) = parse_my_expr(input)?;
-
-    Ok((input, (pred_expr, then_expr, else_expr)))
+struct ParsedIf<Ann> {
+    pred_expr: Expr<Ann>,
+    then_expr: Expr<Ann>,
+    else_expr: Expr<Ann>,
 }
 
-pub fn parse_my_if(input: Span) -> IResult<Span, Expr<Annotation>> {
-    let (input, (annotation, (pred_expr, then_expr, else_expr))) =
-        ws(with_annotation(parse_if_internal))(input)?;
+fn parse_if_internal(input: Span) -> IResult<Span, ParsedIf<Annotation>> {
+    let (input, _) = tag("if")(input)?;
+    let (input, pred_expr) = parse_expr(input)?;
+
+    let (input, _) = ws(tag("then"))(input)?;
+    let (input, then_expr) = parse_expr(input)?;
+
+    let (input, _) = ws(tag("else"))(input)?;
+    let (input, else_expr) = parse_expr(input)?;
+
+    Ok((
+        input,
+        ParsedIf {
+            pred_expr,
+            then_expr,
+            else_expr,
+        },
+    ))
+}
+
+fn parse_my_if(input: Span) -> IResult<Span, Expr<Annotation>> {
+    let (
+        input,
+        (
+            annotation,
+            ParsedIf {
+                pred_expr,
+                then_expr,
+                else_expr,
+            },
+        ),
+    ) = ws(with_annotation(parse_if_internal))(input)?;
 
     Ok((input, mk_if(annotation, pred_expr, then_expr, else_expr)))
 }
 
-pub fn parse_my_expr(input: Span) -> IResult<Span, Expr<Annotation>> {
+pub fn parse_expr(input: Span) -> IResult<Span, Expr<Annotation>> {
     alt((parse_my_int, parse_my_bool, parse_my_if, parse_ann))(input)
 }
