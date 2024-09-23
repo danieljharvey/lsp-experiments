@@ -1,6 +1,6 @@
 use frame::parser::{bool, int, mk_if, parse_expr};
 use frame::typecheck::TypeError;
-use frame::types::{Expr, Type, TypePrim};
+use frame::types::{Expr, Prim, Type, TypePrim};
 
 fn void_expr<Ann>(expr: Expr<Ann>) -> Expr<()> {
     match expr {
@@ -27,6 +27,22 @@ fn void_expr<Ann>(expr: Expr<Ann>) -> Expr<()> {
 fn void_type<Ann>(ty: Type<Ann>) -> Type<()> {
     match ty {
         Type::TPrim { type_prim, .. } => Type::TPrim { ann: (), type_prim },
+    }
+}
+fn void_type_error<Ann>(type_error: TypeError<Ann>) -> TypeError<()> {
+    match type_error {
+        TypeError::TypeMismatch { ty_left, ty_right } => TypeError::TypeMismatch {
+            ty_left: void_type(ty_left),
+            ty_right: void_type(ty_right),
+        },
+        TypeError::LiteralMismatch {
+            prim, type_prim, ..
+        } => TypeError::LiteralMismatch {
+            ann: (),
+            prim,
+            type_prim,
+        },
+        TypeError::UnknownIntegerLiteral { .. } => TypeError::UnknownIntegerLiteral { ann: () },
     }
 }
 
@@ -123,13 +139,40 @@ fn test_typecheck_failure() {
                 },
             },
         ),
+        (
+            "(1: Boolean)",
+            TypeError::LiteralMismatch {
+                ann: (),
+                type_prim: TypePrim::TBoolean,
+                prim: Prim::IntLit(1),
+            },
+        ),
     ];
 
     for (input, expected_type_error) in tests {
         let (_, input_expr) = frame::parser::parse_expr(input.into()).expect("parsing expr");
 
-        let result = frame::typecheck::infer(&void_expr(input_expr));
+        let result = frame::typecheck::infer(&input_expr);
 
-        assert_eq!(result, Err(expected_type_error));
+        let type_error = match result {
+            Err(e) => e,
+            Ok(_) => panic!("should not get here"),
+        };
+
+        assert_eq!(void_type_error(type_error.clone()), expected_type_error);
+
+        let mut buf = std::io::BufWriter::new(Vec::new());
+
+        let report = frame::typecheck::to_report(&type_error);
+
+        report
+            .write(ariadne::Source::from(input), &mut buf)
+            .unwrap();
+
+        let bytes = buf.into_inner().unwrap();
+        let string = String::from_utf8(bytes).unwrap();
+
+        println!("{string}");
+        insta::assert_snapshot!(string);
     }
 }

@@ -1,15 +1,6 @@
 use crate::types::{Expr, Prim, Type, TypePrim};
-
-#[derive(Debug, PartialEq)]
-pub enum TypeError<Ann> {
-    UnknownIntegerLiteral {
-        ann: Ann,
-    },
-    TypeMismatch {
-        ty_left: Type<Ann>,
-        ty_right: Type<Ann>,
-    },
-}
+mod type_error;
+pub use type_error::{to_report, TypeError};
 
 fn infer_prim<Ann>(ann: Ann, prim: &Prim) -> Result<Type<Ann>, TypeError<Ann>> {
     match prim {
@@ -80,7 +71,7 @@ pub fn infer<Ann: Clone>(expr: &Expr<Ann>) -> Result<Expr<Type<Ann>>, TypeError<
 fn check<Ann: Clone>(ty: &Type<Ann>, expr: &Expr<Ann>) -> Result<Expr<Type<Ann>>, TypeError<Ann>> {
     match (ty, expr) {
         (Type::TPrim { type_prim, .. }, Expr::EPrim { prim, ann }) => {
-            check_prim(type_prim, prim)?;
+            check_prim(ann, type_prim, prim)?;
             Ok(Expr::EPrim {
                 ann: Type::TPrim {
                     ann: ann.clone(),
@@ -127,14 +118,22 @@ fn unify<Ann: Clone>(
     }
 }
 
-fn check_prim<Ann>(ty_prim: &TypePrim, prim: &Prim) -> Result<(), TypeError<Ann>> {
-    match (ty_prim, prim) {
+fn check_prim<Ann: Clone>(
+    ann: &Ann,
+    type_prim: &TypePrim,
+    prim: &Prim,
+) -> Result<(), TypeError<Ann>> {
+    match (type_prim, prim) {
         (TypePrim::TBoolean, Prim::Boolean(_)) => Ok(()),
         (TypePrim::TInt8, Prim::IntLit(_)) => Ok(()),
         (TypePrim::TInt16, Prim::IntLit(_)) => Ok(()),
         (TypePrim::TInt32, Prim::IntLit(_)) => Ok(()),
         (TypePrim::TInt64, Prim::IntLit(_)) => Ok(()),
 
-        _ => todo!("error"),
+        _ => Err(TypeError::LiteralMismatch {
+            ann: ann.clone(),
+            type_prim: type_prim.clone(),
+            prim: prim.clone(),
+        }),
     }
 }

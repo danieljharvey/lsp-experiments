@@ -68,6 +68,7 @@
           # Extra inputs can be added here; cargo and rustc are provided by default
           # from the toolchain that was specified earlier.
           packages = [
+            pkgs.cargo-insta
           ];
         };
       });

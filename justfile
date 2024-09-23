@@ -1,5 +1,6 @@
 watch:
-    cargo watch -x test -x clippy
+    cargo watch -i "**/*.snap.new" \
+      -x test -x clippy
 
 format:
     cargo fmt --all
