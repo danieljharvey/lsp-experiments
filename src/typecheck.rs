@@ -1,6 +1,11 @@
 use crate::types::{Expr, Prim, Type, TypePrim};
 mod type_error;
 pub use type_error::{to_report, TypeError};
+mod expr_utils;
+pub use expr_utils::{
+    get_outer_expr_annotation, get_outer_type_annotation, set_outer_expr_annotation,
+    set_outer_type_annotation,
+};
 
 fn infer_prim<Ann>(ann: Ann, prim: &Prim) -> Result<Type<Ann>, TypeError<Ann>> {
     match prim {
@@ -9,23 +14,6 @@ fn infer_prim<Ann>(ann: Ann, prim: &Prim) -> Result<Type<Ann>, TypeError<Ann>> {
             type_prim: TypePrim::TBoolean,
         }),
         Prim::IntLit(_) => Err(TypeError::UnknownIntegerLiteral { ann }),
-    }
-}
-
-fn set_outer_type_annotation<Ann: Clone>(ty: &Type<Ann>, new_ann: &Ann) -> Type<Ann> {
-    match ty {
-        Type::TPrim { type_prim, .. } => Type::TPrim {
-            ann: new_ann.clone(),
-            type_prim: type_prim.clone(),
-        },
-    }
-}
-
-pub fn get_outer_expr_annotation<Ann>(expr: &Expr<Ann>) -> &Ann {
-    match expr {
-        Expr::EPrim { ann, .. } => ann,
-        Expr::EIf { ann, .. } => ann,
-        Expr::EAnn { ann, .. } => ann,
     }
 }
 
@@ -47,7 +35,7 @@ pub fn infer<Ann: Clone>(expr: &Expr<Ann>) -> Result<Expr<Type<Ann>>, TypeError<
         } => {
             let typed_pred_expr = check(
                 &Type::TPrim {
-                    ann: ann.clone(),
+                    ann: get_outer_expr_annotation(pred_expr).clone(),
                     type_prim: TypePrim::TBoolean,
                 },
                 pred_expr,
@@ -63,7 +51,11 @@ pub fn infer<Ann: Clone>(expr: &Expr<Ann>) -> Result<Expr<Type<Ann>>, TypeError<
                 else_expr: Box::new(typed_else_expr),
             })
         }
-        Expr::EAnn { ann: _, ty, expr } => check(ty, expr),
+        Expr::EAnn { ann, ty, expr } => {
+            let typed_expr = check(ty, expr)?;
+            let ty = set_outer_type_annotation(get_outer_expr_annotation(&typed_expr), ann);
+            Ok(set_outer_expr_annotation(&typed_expr, &ty))
+        }
     }
 }
 
@@ -92,10 +84,10 @@ fn check<Ann: Clone>(ty: &Type<Ann>, expr: &Expr<Ann>) -> Result<Expr<Type<Ann>>
 }
 
 fn unify<Ann: Clone>(
-    ty_left: &Type<Ann>,
-    ty_right: &Type<Ann>,
+    expected: &Type<Ann>,
+    actual: &Type<Ann>,
 ) -> Result<Type<Ann>, TypeError<Ann>> {
-    match (ty_left, ty_right) {
+    match (expected, actual) {
         (
             Type::TPrim {
                 type_prim: type_prim_left,
@@ -107,11 +99,11 @@ fn unify<Ann: Clone>(
             },
         ) => {
             if type_prim_left == type_prim_right {
-                Ok(ty_left.clone())
+                Ok(expected.clone())
             } else {
                 Err(TypeError::TypeMismatch {
-                    ty_left: ty_left.clone(),
-                    ty_right: ty_right.clone(),
+                    expected: expected.clone(),
+                    actual: actual.clone(),
                 })
             }
         }

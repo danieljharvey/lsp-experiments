@@ -31,9 +31,9 @@ fn void_type<Ann>(ty: Type<Ann>) -> Type<()> {
 }
 fn void_type_error<Ann>(type_error: TypeError<Ann>) -> TypeError<()> {
     match type_error {
-        TypeError::TypeMismatch { ty_left, ty_right } => TypeError::TypeMismatch {
-            ty_left: void_type(ty_left),
-            ty_right: void_type(ty_right),
+        TypeError::TypeMismatch { expected, actual } => TypeError::TypeMismatch {
+            expected: void_type(expected),
+            actual: void_type(actual),
         },
         TypeError::LiteralMismatch {
             prim, type_prim, ..
@@ -116,11 +116,11 @@ fn test_typecheck_failure() {
         (
             "if (1: Int64) then True else False",
             TypeError::TypeMismatch {
-                ty_left: Type::TPrim {
+                expected: Type::TPrim {
                     ann: (),
                     type_prim: TypePrim::TBoolean,
                 },
-                ty_right: Type::TPrim {
+                actual: Type::TPrim {
                     ann: (),
                     type_prim: TypePrim::TInt64,
                 },
@@ -129,11 +129,11 @@ fn test_typecheck_failure() {
         (
             "if True then True else (1: Int64)",
             TypeError::TypeMismatch {
-                ty_left: Type::TPrim {
+                expected: Type::TPrim {
                     ann: (),
                     type_prim: TypePrim::TBoolean,
                 },
-                ty_right: Type::TPrim {
+                actual: Type::TPrim {
                     ann: (),
                     type_prim: TypePrim::TInt64,
                 },
