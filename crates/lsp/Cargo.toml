@@ -10,5 +10,6 @@ name = "frame-lsp"
 path = "./src/main.rs"
 
 [dependencies]
+dashmap = "*"
 tower-lsp = "0.20"
 tokio = { version = "1.17", features = ["rt-multi-thread","macros","io-std","io-util"] }
