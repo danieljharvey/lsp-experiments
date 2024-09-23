@@ -1,10 +1,10 @@
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Prim {
     Boolean(bool),
     IntLit(i64),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TypePrim {
     TBoolean,
     TInt8,
@@ -13,12 +13,12 @@ pub enum TypePrim {
     TInt64,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Type<Ann> {
     TPrim { ann: Ann, type_prim: TypePrim },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr<Ann> {
     EPrim {
         ann: Ann,

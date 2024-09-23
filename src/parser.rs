@@ -12,7 +12,7 @@ use nom_locate::{position, LocatedSpan};
 
 type Span<'a> = LocatedSpan<&'a str>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Annotation<'a> {
     pub start: Span<'a>,
     pub end: Span<'a>,

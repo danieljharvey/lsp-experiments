@@ -1,13 +1,6 @@
 use frame::parser::{bool, int, mk_if, parse_expr};
+use frame::typecheck::TypeError;
 use frame::types::{Expr, Type, TypePrim};
-
-fn get_outer_expr_annotation<Ann>(expr: Expr<Ann>) -> Ann {
-    match expr {
-        Expr::EPrim { ann, .. } => ann,
-        Expr::EIf { ann, .. } => ann,
-        Expr::EAnn { ann, .. } => ann,
-    }
-}
 
 fn void_expr<Ann>(expr: Expr<Ann>) -> Expr<()> {
     match expr {
@@ -77,22 +70,66 @@ fn test_parse() {
 }
 
 #[test]
-fn test_typecheck() {
+fn test_typecheck_success() {
     let tests = vec![
         ("True", "Boolean"),
         ("False", "Boolean"),
         ("if True then False else True", "Boolean"),
+        ("if True then (1: Int64) else 2", "Int64"),
     ];
 
     for (input, expected) in tests {
         let (_, input_expr) = frame::parser::parse_expr(input.into()).expect("parsing expr");
         let (_, expected_type) = frame::parser::parse_type(expected.into()).expect("parsing type");
 
-        let result = frame::typecheck::infer(void_expr(input_expr));
+        let typed_expr =
+            frame::typecheck::infer(&void_expr(input_expr)).expect("should have succeeded");
+        let ty = frame::typecheck::get_outer_expr_annotation(&typed_expr);
 
-        assert_eq!(
-            result.map(get_outer_expr_annotation),
-            Ok(void_type(expected_type))
-        );
+        assert_eq!(ty, &void_type(expected_type));
+    }
+}
+
+#[test]
+fn test_typecheck_failure() {
+    let tests = vec![
+        (
+            "if True then 1 else 2",
+            TypeError::UnknownIntegerLiteral { ann: () },
+        ),
+        (
+            "if (1: Int64) then True else False",
+            TypeError::TypeMismatch {
+                ty_left: Type::TPrim {
+                    ann: (),
+                    type_prim: TypePrim::TBoolean,
+                },
+                ty_right: Type::TPrim {
+                    ann: (),
+                    type_prim: TypePrim::TInt64,
+                },
+            },
+        ),
+        (
+            "if True then True else (1: Int64)",
+            TypeError::TypeMismatch {
+                ty_left: Type::TPrim {
+                    ann: (),
+                    type_prim: TypePrim::TBoolean,
+                },
+                ty_right: Type::TPrim {
+                    ann: (),
+                    type_prim: TypePrim::TInt64,
+                },
+            },
+        ),
+    ];
+
+    for (input, expected_type_error) in tests {
+        let (_, input_expr) = frame::parser::parse_expr(input.into()).expect("parsing expr");
+
+        let result = frame::typecheck::infer(&void_expr(input_expr));
+
+        assert_eq!(result, Err(expected_type_error));
     }
 }
