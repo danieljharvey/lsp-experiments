@@ -306,6 +306,8 @@ name = "lsp"
 version = "0.1.0"
 dependencies = [
  "dashmap",
+ "frame",
+ "nom",
  "tokio",
  "tower-lsp",
 ]
