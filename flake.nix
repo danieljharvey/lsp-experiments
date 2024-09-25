@@ -31,6 +31,8 @@
         });
 
         my-crate = craneLib.buildPackage {
+          pname = "frame";
+          version = "0.1";
           src = craneLib.cleanCargoSource ./.;
           strictDeps = true;
 

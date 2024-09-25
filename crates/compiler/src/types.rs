@@ -9,7 +9,8 @@ pub enum Prim {
 impl Display for &Prim {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         match self {
-            Prim::Boolean(bool) => bool.fmt(f),
+            Prim::Boolean(true) => write!(f, "True"),
+            Prim::Boolean(false) => write!(f, "False"),
             Prim::IntLit(i) => i.fmt(f),
         }
     }
@@ -66,4 +67,23 @@ pub enum Expr<Ann> {
         ty: Type<Ann>,
         expr: Box<Expr<Ann>>,
     },
+}
+
+impl<Ann> Display for Expr<Ann> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        match self {
+            Expr::EPrim { prim, .. } => prim.fmt(f),
+            Expr::EIf {
+                pred_expr,
+                then_expr,
+                else_expr,
+                ..
+            } => write!(
+                f,
+                "if {} then {} else {}",
+                &pred_expr, &then_expr, &else_expr
+            ),
+            Expr::EAnn { ty, expr, .. } => write!(f, "({}: {})", &expr, ty),
+        }
+    }
 }

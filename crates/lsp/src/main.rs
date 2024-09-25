@@ -78,13 +78,19 @@ impl LanguageServer for Backend {
                 .await;
 
             match compile(&input) {
-                Ok(expr) => Ok(find_most_specific_type(&expr, line, character).map(|ty| {
-                    let hover = Hover {
-                        contents: HoverContents::Scalar(MarkedString::String(ty.to_string())),
-                        range: Some(range_from_annotation(get_outer_type_annotation(ty))),
-                    };
-                    hover
-                })),
+                Ok(expr) => Ok(
+                    find_most_specific_type(&expr, line, character).map(|inner_expr| {
+                        let hover = Hover {
+                            contents: HoverContents::Scalar(MarkedString::String(
+                                to_popup_message(inner_expr),
+                            )),
+                            range: Some(range_from_annotation(get_outer_type_annotation(
+                                frame::typecheck::get_outer_expr_annotation(inner_expr),
+                            ))),
+                        };
+                        hover
+                    }),
+                ),
                 Err(_) => {
                     // for now an error is the end
                     let hover = Hover {
@@ -126,29 +132,60 @@ fn range_from_annotation(ann: &Annotation) -> Range {
 
 // do line/char sit within this annotation?
 // this is so fucked
-fn annotation_matches(ann: &Annotation, line: u32, character: u32) -> bool {
-    let start_col: u32 = ann.start.get_utf8_column().try_into().unwrap();
-    let start_line: u32 = ann.start.location_line();
+fn annotation_matches(ann: &Annotation, cursor_line: u32, cursor_col: u32) -> bool {
+    let start_col_raw: u32 = ann.start.get_column().try_into().unwrap();
+    let start_col: u32 = start_col_raw - 1;
+    let start_line: u32 = ann.start.location_line() - 1;
 
-    let end_col: u32 = ann.end.get_utf8_column().try_into().unwrap();
-    let end_line: u32 = ann.end.location_line();
+    let end_col_raw: u32 = ann.end.get_column().try_into().unwrap();
+    let end_col: u32 = end_col_raw - 1;
+    let end_line: u32 = ann.end.location_line() - 1;
 
-    let after_start = (line == start_col && character >= start_line) || line < start_line;
+    let after_start =
+        (cursor_line == start_line && cursor_col >= start_col) || cursor_line < start_line;
 
-    let before_end = (line == end_col && character < end_line) || line < end_line;
+    let before_end = (cursor_line == end_line && cursor_col < end_col) || cursor_line < end_line;
 
     after_start && before_end
+}
+
+#[test]
+fn test_matches() {
+    let (_, expr) = frame::parser::parse_expr("if True then (1: Int64) else 2".into()).unwrap();
+
+    let typed_expr = frame::typecheck::infer(&expr).unwrap();
+
+    let tests = vec![
+        (0, 2, None),
+        (1, 29, None),
+        (0, 13, Some("1: Int64".into())),
+        (0, 18, Some("1: Int64".into())),
+        (0, 29, Some("2: Int64".into())),
+        (0, 3, Some("True: Boolean".into())),
+    ];
+
+    for (x, y, result) in tests {
+        assert_eq!(
+            find_most_specific_type(&typed_expr, x, y).map(to_popup_message),
+            result
+        );
+    }
+}
+
+fn to_popup_message<Ann>(expr: &Expr<Type<Ann>>) -> String {
+    let ty = frame::typecheck::get_outer_expr_annotation(expr);
+    format!("{}: {}", expr, ty)
 }
 
 fn find_most_specific_type<'a>(
     expr: &'a Expr<Type<Annotation>>,
     line: u32,
     character: u32,
-) -> Option<&'a Type<Annotation<'a>>> {
+) -> Option<&'a Expr<Type<Annotation<'a>>>> {
     match expr {
         Expr::EPrim { ann, .. } => {
             if annotation_matches(get_outer_type_annotation(ann), line, character) {
-                Some(ann)
+                Some(expr)
             } else {
                 None
             }
@@ -157,7 +194,7 @@ fn find_most_specific_type<'a>(
             if annotation_matches(get_outer_type_annotation(ann), line, character) {
                 // the whole thing matches
                 // maybe we can do better though
-                find_most_specific_type(expr, line, character).or(Some(ann))
+                find_most_specific_type(expr, line, character).or(Some(expr))
             } else {
                 None
             }
@@ -172,7 +209,6 @@ fn find_most_specific_type<'a>(
                 find_most_specific_type(pred_expr, line, character)
                     .or(find_most_specific_type(then_expr, line, character))
                     .or(find_most_specific_type(else_expr, line, character))
-                    .or(Some(ann))
             } else {
                 None
             }
