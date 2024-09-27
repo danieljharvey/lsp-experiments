@@ -92,6 +92,7 @@ fn test_typecheck_success() {
         ("False", "Boolean"),
         ("if True then False else True", "Boolean"),
         ("if True then (1: Int64) else 2", "Int64"),
+        ("(if True then 1 else 2 : Int64)", "Int64"),
     ];
 
     for (input, expected) in tests {

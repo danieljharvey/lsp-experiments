@@ -23,7 +23,7 @@ pub fn to_diagnostic(diag: &Diag) -> Diagnostic {
             code_description: None,
             data: None,
             message: message.to_string(),
-            range: crate::range_from_annotation(&annotation),
+            range: crate::hover::range_from_annotation(annotation),
             related_information: None,
             severity: Some(DiagnosticSeverity::ERROR),
             source: None,
@@ -40,7 +40,7 @@ pub fn get_diagnostics<'a>(
     match result {
         Ok(_) => vec![],
         Err(CompileError::ParseError) => vec![],
-        Err(CompileError::TypeError(type_error)) => match type_error {
+        Err(CompileError::TypeError(type_error)) => match *type_error {
             TypeError::UnknownIntegerLiteral { ann } => {
                 vec![Diag::Error {
                     message: "Unknown integer literal".to_string(),

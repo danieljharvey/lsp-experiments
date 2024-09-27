@@ -84,10 +84,10 @@ fn check<Ann: Clone>(ty: &Type<Ann>, expr: &Expr<Ann>) -> Result<Expr<Type<Ann>>
 }
 
 fn unify<Ann: Clone>(
-    actual: &Type<Ann>,
     expected: &Type<Ann>,
+    actual: &Type<Ann>,
 ) -> Result<Type<Ann>, TypeError<Ann>> {
-    match (actual, expected) {
+    match (expected, actual) {
         (
             Type::TPrim {
                 type_prim: type_prim_left,
