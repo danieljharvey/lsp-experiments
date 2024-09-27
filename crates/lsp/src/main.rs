@@ -4,7 +4,7 @@ mod hover;
 use dashmap::DashMap;
 use frame::{
     parser::Annotation,
-    typecheck::TypeError,
+    typecheck::{TypeError, Warning},
     types::{Expr, Type},
 };
 use std::sync::Arc;
@@ -103,9 +103,9 @@ impl LanguageServer for Backend {
                 .await;
 
             match compile(&input) {
-                Ok(expr) => Ok(hover::find_most_specific_type(&expr, line, character)
+                (Ok(expr), _warnings) => Ok(hover::find_most_specific_type(&expr, line, character)
                     .map(hover::hover_from_expr)),
-                Err(_) => Ok(None),
+                (Err(_), _warnings) => Ok(None),
             }
             // now parse the file and typecheck it and all that shit
         } else {
@@ -123,11 +123,22 @@ enum CompileError<'a> {
     TypeError(Box<TypeError<Annotation<'a>>>),
 }
 
-fn compile(input: &str) -> Result<Expr<Type<Annotation>>, CompileError> {
-    let (_, input_expr) =
-        frame::parser::parse_expr(input.into()).map_err(|_| CompileError::ParseError)?;
+fn compile(
+    input: &str,
+) -> (
+    Result<Expr<Type<Annotation>>, CompileError>,
+    Vec<Warning<Annotation>>,
+) {
+    match frame::parser::parse_expr(input.into()) {
+        Ok((_, input_expr)) => {
+            let mut warnings = vec![];
+            let result = frame::typecheck::infer(&input_expr, &mut warnings)
+                .map_err(|e| CompileError::TypeError(Box::new(e)));
 
-    frame::typecheck::infer(&input_expr).map_err(|e| CompileError::TypeError(Box::new(e)))
+            (result, warnings)
+        }
+        Err(_) => (Err(CompileError::ParseError), vec![]),
+    }
 }
 
 #[tokio::main]

@@ -1,4 +1,6 @@
+mod warning;
 use crate::types::{Expr, Prim, Type, TypePrim};
+pub use warning::Warning;
 mod type_error;
 pub use type_error::{to_report, TypeError};
 mod expr_utils;
@@ -18,7 +20,10 @@ fn infer_prim<Ann>(ann: Ann, prim: &Prim) -> Result<Type<Ann>, TypeError<Ann>> {
 }
 
 // given no information, try and work out what we have here
-pub fn infer<Ann: Clone>(expr: &Expr<Ann>) -> Result<Expr<Type<Ann>>, TypeError<Ann>> {
+pub fn infer<Ann: Clone>(
+    expr: &Expr<Ann>,
+    warnings: &mut Vec<Warning<Ann>>,
+) -> Result<Expr<Type<Ann>>, TypeError<Ann>> {
     match expr {
         Expr::EPrim { ann, prim } => {
             let ty = infer_prim(ann.clone(), prim)?;
@@ -39,10 +44,11 @@ pub fn infer<Ann: Clone>(expr: &Expr<Ann>) -> Result<Expr<Type<Ann>>, TypeError<
                     type_prim: TypePrim::TBoolean,
                 },
                 pred_expr,
+                warnings,
             )?;
-            let typed_then_expr = infer(then_expr)?;
+            let typed_then_expr = infer(then_expr, warnings)?;
             let ty_then = get_outer_expr_annotation(&typed_then_expr);
-            let typed_else_expr = check(ty_then, else_expr)?;
+            let typed_else_expr = check(ty_then, else_expr, warnings)?;
             let ty = set_outer_type_annotation(ty_then, ann);
             Ok(Expr::EIf {
                 ann: ty,
@@ -52,15 +58,28 @@ pub fn infer<Ann: Clone>(expr: &Expr<Ann>) -> Result<Expr<Type<Ann>>, TypeError<
             })
         }
         Expr::EAnn { ann, ty, expr } => {
-            let typed_expr = check(ty, expr)?;
-            let ty = set_outer_type_annotation(get_outer_expr_annotation(&typed_expr), ann);
+            let typed_expr = check(ty, expr, warnings)?;
+            let inferred_type = get_outer_expr_annotation(&typed_expr);
+            if let Type::TPrim {
+                type_prim: TypePrim::TBoolean,
+                ..
+            } = inferred_type
+            {
+                // ie, we don't need this annotation
+                warnings.push(Warning::UnnecessaryAnnotation { ann: ann.clone() })
+            }
+            let ty = set_outer_type_annotation(inferred_type, ann);
             Ok(set_outer_expr_annotation(&typed_expr, &ty))
         }
     }
 }
 
 // given a type, try and work out what we have here
-fn check<Ann: Clone>(ty: &Type<Ann>, expr: &Expr<Ann>) -> Result<Expr<Type<Ann>>, TypeError<Ann>> {
+fn check<Ann: Clone>(
+    ty: &Type<Ann>,
+    expr: &Expr<Ann>,
+    warnings: &mut Vec<Warning<Ann>>,
+) -> Result<Expr<Type<Ann>>, TypeError<Ann>> {
     match (ty, expr) {
         (Type::TPrim { type_prim, .. }, Expr::EPrim { prim, ann }) => {
             check_prim(ann, type_prim, prim)?;
@@ -73,7 +92,7 @@ fn check<Ann: Clone>(ty: &Type<Ann>, expr: &Expr<Ann>) -> Result<Expr<Type<Ann>>
             })
         }
         _ => {
-            let typed_expr = infer(expr)?;
+            let typed_expr = infer(expr, warnings)?;
             let ty_expr = get_outer_expr_annotation(&typed_expr);
             let _resolved_ty = unify(ty, ty_expr)?;
             // once we have polymorphism, we'll need to insert `resolved_ty` into `typed_expr`

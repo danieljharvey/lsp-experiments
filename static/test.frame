@@ -1,1 +1,3 @@
-if True then (1: Int8) else 2
+if True then
+  (1: Int8)
+  else False

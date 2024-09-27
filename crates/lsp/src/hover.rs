@@ -21,11 +21,11 @@ pub fn range_from_annotation(ann: &Annotation) -> Range {
     Range {
         start: Position {
             character: start_col_raw - 1,
-            line: ann.start.location_line(),
+            line: ann.start.location_line() - 1,
         },
         end: Position {
             character: end_col_raw - 1,
-            line: ann.end.location_line(),
+            line: ann.end.location_line() - 1,
         },
     }
 }
@@ -41,8 +41,13 @@ pub fn annotation_matches(ann: &Annotation, cursor_line: u32, cursor_col: u32) -
     let end_col: u32 = end_col_raw - 1;
     let end_line: u32 = ann.end.location_line() - 1;
 
+    println!(
+        "start: {} {}, end: {} {}, cursor: {} {}",
+        start_line, start_col, end_line, end_col, cursor_line, cursor_col
+    );
+
     let after_start =
-        (cursor_line == start_line && cursor_col >= start_col) || cursor_line < start_line;
+        (cursor_line == start_line && cursor_col >= start_col) || cursor_line > start_line;
 
     let before_end = (cursor_line == end_line && cursor_col < end_col) || cursor_line < end_line;
 
@@ -51,16 +56,16 @@ pub fn annotation_matches(ann: &Annotation, cursor_line: u32, cursor_col: u32) -
 
 #[test]
 fn test_matches() {
-    let (_, expr) = frame::parser::parse_expr("if True then (1: Int64) else 2".into()).unwrap();
+    let (_, expr) = frame::parser::parse_expr("if True then (1: Int64)\nelse 2".into()).unwrap();
 
-    let typed_expr = frame::typecheck::infer(&expr).unwrap();
+    let typed_expr = frame::typecheck::infer(&expr, &mut vec![]).unwrap();
 
     let tests = vec![
         (0, 2, None),
-        (1, 29, None),
+        (0, 29, None),
         (0, 13, Some("1: Int64".into())),
         (0, 18, Some("1: Int64".into())),
-        (0, 29, Some("2: Int64".into())),
+        (1, 5, Some("2: Int64".into())),
         (0, 3, Some("True: Boolean".into())),
     ];
 
