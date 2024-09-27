@@ -1,3 +1,5 @@
+mod diagnostic;
+
 use dashmap::DashMap;
 use frame::{
     parser::Annotation,
@@ -58,11 +60,33 @@ impl LanguageServer for Backend {
         let new_input = &params.text_document.text;
 
         self.update_text(new_input);
+
+        self.client
+            .publish_diagnostics(
+                params.text_document.uri,
+                diagnostic::get_diagnostics(compile(new_input))
+                    .iter()
+                    .map(diagnostic::to_diagnostic)
+                    .collect(),
+                None,
+            )
+            .await
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         if let Some(new_input) = &params.content_changes.first() {
-            self.update_text(&new_input.text)
+            self.update_text(&new_input.text);
+
+            self.client
+                .publish_diagnostics(
+                    params.text_document.uri,
+                    diagnostic::get_diagnostics(compile(&new_input.text))
+                        .iter()
+                        .map(diagnostic::to_diagnostic)
+                        .collect(),
+                    None,
+                )
+                .await
         }
     }
 
@@ -91,15 +115,7 @@ impl LanguageServer for Backend {
                         hover
                     }),
                 ),
-                Err(_) => {
-                    // for now an error is the end
-                    let hover = Hover {
-                        contents: HoverContents::Scalar(MarkedString::String("Error".into())),
-                        range: None,
-                    };
-
-                    Ok(Some(hover))
-                }
+                Err(_) => Ok(None),
             }
             // now parse the file and typecheck it and all that shit
         } else {
@@ -118,13 +134,16 @@ enum CompileError<'a> {
 }
 
 fn range_from_annotation(ann: &Annotation) -> Range {
+    let start_col_raw: u32 = ann.start.get_utf8_column().try_into().unwrap();
+    let end_col_raw: u32 = ann.end.get_utf8_column().try_into().unwrap();
+
     Range {
         start: Position {
-            character: ann.start.get_utf8_column().try_into().unwrap(),
+            character: start_col_raw - 1,
             line: ann.start.location_line(),
         },
         end: Position {
-            character: ann.end.get_utf8_column().try_into().unwrap(),
+            character: end_col_raw - 1,
             line: ann.end.location_line(),
         },
     }
@@ -133,11 +152,11 @@ fn range_from_annotation(ann: &Annotation) -> Range {
 // do line/char sit within this annotation?
 // this is so fucked
 fn annotation_matches(ann: &Annotation, cursor_line: u32, cursor_col: u32) -> bool {
-    let start_col_raw: u32 = ann.start.get_column().try_into().unwrap();
+    let start_col_raw: u32 = ann.start.get_utf8_column().try_into().unwrap();
     let start_col: u32 = start_col_raw - 1;
     let start_line: u32 = ann.start.location_line() - 1;
 
-    let end_col_raw: u32 = ann.end.get_column().try_into().unwrap();
+    let end_col_raw: u32 = ann.end.get_utf8_column().try_into().unwrap();
     let end_col: u32 = end_col_raw - 1;
     let end_line: u32 = ann.end.location_line() - 1;
 
