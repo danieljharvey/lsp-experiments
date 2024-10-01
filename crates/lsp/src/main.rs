@@ -119,7 +119,7 @@ impl LanguageServer for Backend {
 }
 
 enum CompileError<'a> {
-    ParseError,
+    ParseError(nom::Err<nom::error::Error<nom_locate::LocatedSpan<&'a str>>>),
     TypeError(Box<TypeError<Annotation<'a>>>),
 }
 
@@ -137,7 +137,7 @@ fn compile(
 
             (result, warnings)
         }
-        Err(_) => (Err(CompileError::ParseError), vec![]),
+        Err(e) => (Err(CompileError::ParseError(e)), vec![]),
     }
 }
 

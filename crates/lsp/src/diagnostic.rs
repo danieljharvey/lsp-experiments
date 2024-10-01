@@ -60,7 +60,22 @@ pub fn get_diagnostics<'a>(
 ) -> Vec<Diag<'a>> {
     let mut error_diagostics = match result {
         Ok(_) => vec![],
-        Err(CompileError::ParseError) => vec![],
+        Err(CompileError::ParseError(nom_err)) => match nom_err {
+            nom::Err::Incomplete(_) => vec![],
+            nom::Err::Error(error) => {
+                let (_, start) = nom_locate::position::<
+                    nom_locate::LocatedSpan<&str>,
+                    nom::error::Error<nom_locate::LocatedSpan<&str>>,
+                >(error.input)
+                .unwrap();
+
+                vec![Diag::Error {
+                    message: "Parse error".to_string(),
+                    annotation: Annotation { start, end: start },
+                }]
+            }
+            nom::Err::Failure(_) => vec![],
+        },
         Err(CompileError::TypeError(type_error)) => match *type_error {
             TypeError::UnknownIntegerLiteral { ann } => {
                 vec![Diag::Error {
