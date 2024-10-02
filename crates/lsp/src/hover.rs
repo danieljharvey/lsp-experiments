@@ -1,11 +1,12 @@
 use frame::{
-    parser::Annotation,
+    parser::StaticAnnotation,
     typecheck::get_outer_type_annotation,
     types::{Expr, Type},
 };
+use std::cell::RefCell;
 use tower_lsp::lsp_types::*;
 
-pub fn hover_from_expr(inner_expr: &Expr<Type<Annotation>>) -> Hover {
+pub fn hover_from_expr(inner_expr: &Expr<Type<StaticAnnotation>>) -> Hover {
     Hover {
         contents: HoverContents::Scalar(MarkedString::String(to_popup_message(inner_expr))),
         range: Some(range_from_annotation(get_outer_type_annotation(
@@ -14,7 +15,7 @@ pub fn hover_from_expr(inner_expr: &Expr<Type<Annotation>>) -> Hover {
     }
 }
 
-pub fn range_from_annotation(ann: &Annotation) -> Range {
+pub fn range_from_annotation(ann: &StaticAnnotation) -> Range {
     let start_col_raw: u32 = ann.start.get_utf8_column().try_into().unwrap();
     let end_col_raw: u32 = ann.end.get_utf8_column().try_into().unwrap();
 
@@ -32,7 +33,7 @@ pub fn range_from_annotation(ann: &Annotation) -> Range {
 
 // do line/char sit within this annotation?
 // this is so fucked
-pub fn annotation_matches(ann: &Annotation, cursor_line: u32, cursor_col: u32) -> bool {
+pub fn annotation_matches(ann: &StaticAnnotation, cursor_line: u32, cursor_col: u32) -> bool {
     let start_col_raw: u32 = ann.start.get_utf8_column().try_into().unwrap();
     let start_col: u32 = start_col_raw - 1;
     let start_line: u32 = ann.start.location_line() - 1;
@@ -56,7 +57,9 @@ pub fn annotation_matches(ann: &Annotation, cursor_line: u32, cursor_col: u32) -
 
 #[test]
 fn test_matches() {
-    let (_, expr) = frame::parser::parse_expr("if True then (1: Int64)\nelse 2".into()).unwrap();
+    let ref_cell = RefCell::new(vec![]);
+    let (parse_expr, _) = frame::parser::parse(&ref_cell, "if True then (1: Int64)\nelse 2");
+    let expr = frame::parser::to_real_expr(parse_expr).expect("parsing expr");
 
     let typed_expr = frame::typecheck::infer(&expr, &mut vec![]).unwrap();
 
@@ -83,10 +86,10 @@ pub fn to_popup_message<Ann>(expr: &Expr<Type<Ann>>) -> String {
 }
 
 pub fn find_most_specific_type<'a>(
-    expr: &'a Expr<Type<Annotation>>,
+    expr: &'a Expr<Type<StaticAnnotation>>,
     line: u32,
     character: u32,
-) -> Option<&'a Expr<Type<Annotation<'a>>>> {
+) -> Option<&'a Expr<Type<StaticAnnotation<'a>>>> {
     match expr {
         Expr::EPrim { ann, .. } => {
             if annotation_matches(get_outer_type_annotation(ann), line, character) {

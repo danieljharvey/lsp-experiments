@@ -1,6 +1,6 @@
 use crate::CompileError;
 use frame::{
-    parser::Annotation,
+    parser::StaticAnnotation,
     typecheck::{get_outer_type_annotation, TypeError, Warning},
     types::{Expr, Type},
 };
@@ -9,11 +9,11 @@ use tower_lsp::lsp_types::*;
 pub enum Diag<'a> {
     Error {
         message: String,
-        annotation: Annotation<'a>,
+        annotation: StaticAnnotation<'a>,
     },
     Warning {
         message: String,
-        annotation: Annotation<'a>,
+        annotation: StaticAnnotation<'a>,
     },
 }
 
@@ -54,28 +54,15 @@ pub fn to_diagnostic(diag: &Diag) -> Diagnostic {
 // for now, just errors, but we can also emit warnings on success
 pub fn get_diagnostics<'a>(
     (result, warnings): (
-        Result<Expr<Type<Annotation<'a>>>, CompileError<'a>>,
-        Vec<Warning<Annotation<'a>>>,
+        Result<Expr<Type<StaticAnnotation<'a>>>, CompileError<'a>>,
+        Vec<Warning<StaticAnnotation<'a>>>,
     ),
 ) -> Vec<Diag<'a>> {
     let mut error_diagostics = match result {
         Ok(_) => vec![],
-        Err(CompileError::ParseError(nom_err)) => match nom_err {
-            nom::Err::Incomplete(_) => vec![],
-            nom::Err::Error(error) => {
-                let (_, start) = nom_locate::position::<
-                    nom_locate::LocatedSpan<&str>,
-                    nom::error::Error<nom_locate::LocatedSpan<&str>>,
-                >(error.input)
-                .unwrap();
-
-                vec![Diag::Error {
-                    message: "Parse error".to_string(),
-                    annotation: Annotation { start, end: start },
-                }]
-            }
-            nom::Err::Failure(_) => vec![],
-        },
+        Err(CompileError::ParseError(_nom_err)) => {
+            vec![] // it'll not be a nom error now
+        }
         Err(CompileError::TypeError(type_error)) => match *type_error {
             TypeError::UnknownIntegerLiteral { ann } => {
                 vec![Diag::Error {

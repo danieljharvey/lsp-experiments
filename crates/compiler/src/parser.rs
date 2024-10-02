@@ -1,137 +1,142 @@
+pub mod constructors;
+
+use std::cell::RefCell;
+use std::ops::Range;
+
 use crate::types::{Expr, Prim, Type, TypePrim};
 use nom::branch::alt;
+use nom::bytes::complete::{take, take_till1, take_while};
+use nom::character::complete::{anychar, multispace0};
+use nom::combinator::{all_consuming, map, not, recognize, rest, verify};
+use nom::sequence::{preceded, terminated};
 use nom::{
     bytes::complete::{tag, take_while_m_n},
-    combinator::{map, map_res},
-    IResult,
+    combinator::map_res,
 };
 
-use nom::{character::complete::multispace0, error::ParseError, sequence::preceded};
+type IResult<'a, T> = nom::IResult<LocatedSpan<'a>, T>;
 
-use nom_locate::{position, LocatedSpan};
-
-type Span<'a> = LocatedSpan<&'a str>;
+pub type LocatedSpan<'a> = nom_locate::LocatedSpan<&'a str, State<'a>>;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Annotation<'a> {
-    pub start: Span<'a>,
-    pub end: Span<'a>,
+pub struct Annotation<Span> {
+    pub start: Span,
+    pub end: Span,
 }
 
-// construct int
-pub fn int<Ann>(ann: Ann, int_val: i64) -> Expr<Ann> {
-    Expr::EPrim {
-        ann,
-        prim: Prim::IntLit(int_val),
+type ParseAnnotation<'a> = Annotation<LocatedSpan<'a>>;
+
+pub type StaticAnnotation<'a> = Annotation<nom_locate::LocatedSpan<&'a str, ()>>;
+
+trait ToRange {
+    fn to_range(&self) -> Range<usize>;
+}
+
+impl<'a> ToRange for LocatedSpan<'a> {
+    fn to_range(&self) -> Range<usize> {
+        let start = self.location_offset();
+        let end = start + self.fragment().len();
+        start..end
     }
 }
 
-// construct bool
-pub fn bool<Ann>(ann: Ann, bool_val: bool) -> Expr<Ann> {
-    Expr::EPrim {
-        ann,
-        prim: Prim::Boolean(bool_val),
-    }
-}
+#[derive(Debug, Clone)]
+pub struct Error(Range<usize>, String);
 
-/*
-// construct var
-pub fn var(identifier: Span) -> Expr<()> {
-    Expr::EVar {
-        ann: (),
-        identifier: identifier.to_string(),
-    }
-}
-*/
+#[derive(Clone, Debug)]
+pub struct State<'a>(&'a RefCell<Vec<Error>>);
 
-// construct if
-pub fn mk_if<Ann>(
-    ann: Ann,
-    pred_expr: Expr<Ann>,
-    then_expr: Expr<Ann>,
-    else_expr: Expr<Ann>,
-) -> Expr<Ann> {
-    Expr::EIf {
-        ann,
-        pred_expr: Box::new(pred_expr),
-        then_expr: Box::new(then_expr),
-        else_expr: Box::new(else_expr),
+impl<'a> State<'a> {
+    pub fn report_error(&self, error: Error) {
+        self.0.borrow_mut().push(error);
     }
-}
-
-/// A combinator that takes a parser `inner` and produces a parser that also consumes both leading and
-/// trailing whitespace, returning the output of `inner`.
-pub fn ws<'a, F, O, E: ParseError<Span<'a>>>(
-    inner: F,
-) -> impl FnMut(Span<'a>) -> IResult<Span<'a>, O, E>
-where
-    F: FnMut(Span<'a>) -> IResult<Span<'a>, O, E>,
-{
-    preceded(multispace0, inner)
 }
 
 // given a parser, return a parser that returns the result and an Annotation describing the source
 // location
-pub fn with_annotation<'a, F, O, E: ParseError<Span<'a>>>(
+pub fn with_annotation<'a, F, T>(
     mut inner: F,
-) -> impl FnMut(Span<'a>) -> IResult<Span<'a>, (Annotation<'a>, O), E>
+) -> impl FnMut(LocatedSpan<'a>) -> IResult<(ParseAnnotation<'a>, T)>
 where
-    F: FnMut(Span<'a>) -> IResult<Span<'a>, O, E>,
+    F: FnMut(LocatedSpan<'a>) -> IResult<T>,
 {
-    move |input: Span| {
-        let (input, start) = position(input)?;
+    move |input: LocatedSpan| {
+        let (input, start) = nom_locate::position(input)?;
         let (input, result) = inner(input)?;
-        let (input, end) = position(input)?;
+        let (input, end) = nom_locate::position(input)?;
         Ok((input, (Annotation { start, end }, result)))
     }
 }
 
-fn is_int_digit(c: char) -> bool {
-    c.is_ascii_digit()
+fn expect<'a, F, E, T>(
+    mut parser: F,
+    error_msg: E,
+) -> impl FnMut(LocatedSpan<'a>) -> IResult<Option<T>>
+where
+    F: FnMut(LocatedSpan<'a>) -> IResult<T>,
+    E: ToString,
+{
+    move |input| match parser(input) {
+        Ok((remaining, out)) => Ok((remaining, Some(out))),
+        Err(nom::Err::Error(nom::error::Error { input, .. }))
+        | Err(nom::Err::Failure(nom::error::Error { input, .. })) => {
+            let err = Error(input.to_range(), error_msg.to_string());
+            input.extra.report_error(err);
+            Ok((input, None))
+        }
+        Err(err) => Err(err),
+    }
 }
 
-fn int_primary(input: Span) -> IResult<Span, u8> {
-    map_res(take_while_m_n(1, 12, is_int_digit), from_int)(input)
+#[derive(Debug)]
+pub struct Ident(String);
+
+#[derive(Debug)]
+pub enum ParseExpr<'a> {
+    Ident {
+        ann: ParseAnnotation<'a>,
+        ident: Ident,
+    },
+    Prim {
+        ann: ParseAnnotation<'a>,
+        prim: Prim,
+    },
+    If {
+        ann: ParseAnnotation<'a>,
+        pred_expr: Box<ParseExpr<'a>>,
+        then_expr: Box<ParseExpr<'a>>,
+        else_expr: Box<ParseExpr<'a>>,
+    },
+    Ann {
+        ann: ParseAnnotation<'a>,
+        ty: Option<ParseType<'a>>,
+        expr: Box<ParseExpr<'a>>,
+    },
+    Error,
 }
 
-fn from_int(input: Span) -> Result<u8, std::num::ParseIntError> {
-    input.parse::<u8>()
+#[derive(Debug, Clone, PartialEq)]
+pub enum ParseType<'a> {
+    Prim {
+        ann: ParseAnnotation<'a>,
+        type_prim: TypePrim,
+    },
 }
 
-fn parse_my_int(input: Span) -> IResult<Span, Expr<Annotation>> {
-    let (input, (annotation, int_val)) = ws(with_annotation(int_primary))(input)?;
-    Ok((input, int(annotation, i64::from(int_val))))
-}
-
-fn parse_ann_internal(input: Span) -> IResult<Span, (Type<Annotation>, Expr<Annotation>)> {
-    let (input, _) = tag("(")(input)?;
-
-    let (input, expr) = parse_expr(input)?;
-
-    let (input, _) = ws(tag(":"))(input)?;
-
-    let (input, ty) = parse_type(input)?;
-
-    let (input, _) = tag(")")(input)?;
-
-    Ok((input, (ty, expr)))
-}
-
-fn parse_ann(input: Span) -> IResult<Span, Expr<Annotation>> {
-    let (input, (ann, (ty, expr))) = ws(with_annotation(parse_ann_internal))(input)?;
-
-    Ok((
-        input,
-        Expr::EAnn {
+fn ident(input: LocatedSpan) -> IResult<ParseExpr> {
+    let first = verify(anychar, |c| c.is_ascii_alphabetic() || *c == '_');
+    let rest = take_while(|c: char| c.is_ascii_alphanumeric() || "_-'".contains(c));
+    let ident = ws(with_annotation(recognize(preceded(first, rest))));
+    map(ident, |(ann, span): (ParseAnnotation, LocatedSpan)| {
+        ParseExpr::Ident {
             ann,
-            ty,
-            expr: Box::new(expr),
-        },
-    ))
+            ident: Ident(span.fragment().to_string()),
+        }
+    })(input)
 }
 
 // Need to add more types as we need them pls
-fn parse_type_prim(input: Span) -> IResult<Span, TypePrim> {
+fn parse_type_prim(input: LocatedSpan) -> IResult<TypePrim> {
     let boolean = map(tag("Boolean"), |_| TypePrim::TBoolean);
     let int_8 = map(tag("Int8"), |_| TypePrim::TInt8);
     let int_16 = map(tag("Int16 "), |_| TypePrim::TInt16);
@@ -140,89 +145,16 @@ fn parse_type_prim(input: Span) -> IResult<Span, TypePrim> {
     ws(alt((boolean, int_8, int_16, int_32, int_64)))(input)
 }
 
-pub fn parse_type(input: Span) -> IResult<Span, Type<Annotation>> {
+pub fn ty(input: LocatedSpan) -> IResult<ParseType> {
     let (input, (ann, type_prim)) = ws(with_annotation(parse_type_prim))(input)?;
-    Ok((input, Type::TPrim { ann, type_prim }))
+    Ok((input, ParseType::Prim { ann, type_prim }))
 }
 
-/*
-// check we aren't using protected words for variables
-fn var_is_protected(ident: Span) -> bool {
-    vec!["True", "False", "if", "then", "else"].contains(&ident)
-}
-
-// jesus
-fn parse_my_var(input: Span) -> IResult<Span, Expr<()>> {
-    map_res(ws(alpha1), |var_val| {
-        match var_is_protected(var_val) {
-            true => Err(nom::Err::Error {
-                0: nom::error::Error {
-                    code: nom::error::ErrorKind::Tag,
-                    input: input,
-                },
-            }),
-            false => Ok(var(var_val)),
-        }
-    })(input)
-}
-
-#[test]
-fn test_parse_my_var() {
-    assert_ne!(parse_my_var("False"), Ok(("", var("False"))));
-    assert_ne!(parse_my_var("True"), Ok(("", var("True"))));
-    assert_ne!(parse_my_var("if"), Ok(("", var("if"))));
-    assert_eq!(parse_my_var(" p"), Ok(("", var("p"))));
-    assert_eq!(parse_my_var("p"), Ok(("", var("p"))));
-    assert_eq!(parse_my_var("poo"), Ok(("", var("poo"))));
-    assert_eq!(parse_my_var("poo "), Ok((" ", var("poo"))))
-}
-*/
-
-fn parse_true(input: Span) -> IResult<Span, Expr<Annotation>> {
-    map(ws(with_annotation(tag("True"))), |(ann, _)| bool(ann, true))(input)
-}
-
-fn parse_false(input: Span) -> IResult<Span, Expr<Annotation>> {
-    map(ws(with_annotation(tag("False"))), |(ann, _)| {
-        bool(ann, false)
-    })(input)
-}
-
-fn parse_my_bool(input: Span) -> IResult<Span, Expr<Annotation>> {
-    alt((parse_true, parse_false))(input)
-}
-
-struct ParsedIf<Ann> {
-    pred_expr: Expr<Ann>,
-    then_expr: Expr<Ann>,
-    else_expr: Expr<Ann>,
-}
-
-fn parse_if_internal(input: Span) -> IResult<Span, ParsedIf<Annotation>> {
-    let (input, _) = tag("if")(input)?;
-    let (input, pred_expr) = parse_expr(input)?;
-
-    let (input, _) = ws(tag("then"))(input)?;
-    let (input, then_expr) = parse_expr(input)?;
-
-    let (input, _) = ws(tag("else"))(input)?;
-    let (input, else_expr) = parse_expr(input)?;
-
-    Ok((
-        input,
-        ParsedIf {
-            pred_expr,
-            then_expr,
-            else_expr,
-        },
-    ))
-}
-
-fn parse_my_if(input: Span) -> IResult<Span, Expr<Annotation>> {
+fn iff(input: LocatedSpan) -> IResult<ParseExpr> {
     let (
         input,
         (
-            annotation,
+            ann,
             ParsedIf {
                 pred_expr,
                 then_expr,
@@ -231,9 +163,213 @@ fn parse_my_if(input: Span) -> IResult<Span, Expr<Annotation>> {
         ),
     ) = ws(with_annotation(parse_if_internal))(input)?;
 
-    Ok((input, mk_if(annotation, pred_expr, then_expr, else_expr)))
+    Ok((
+        input,
+        ParseExpr::If {
+            ann,
+            pred_expr: Box::new(pred_expr),
+            then_expr: Box::new(then_expr),
+            else_expr: Box::new(else_expr),
+        },
+    ))
 }
 
-pub fn parse_expr(input: Span) -> IResult<Span, Expr<Annotation>> {
-    alt((parse_my_int, parse_my_bool, parse_my_if, parse_ann))(input)
+struct ParsedIf<'a> {
+    pred_expr: ParseExpr<'a>,
+    then_expr: ParseExpr<'a>,
+    else_expr: ParseExpr<'a>,
+}
+
+fn parse_if_internal(input: LocatedSpan) -> IResult<ParsedIf> {
+    let (input, _) = tag("if")(input)?;
+    let (input, pred_expr) = expect(expr, "expected expression after 'if'")(input)?;
+
+    let (input, _) = ws(tag("then"))(input)?;
+    let (input, then_expr) = expect(expr, "expected expression after 'then'")(input)?;
+
+    let (input, _) = ws(tag("else"))(input)?;
+    let (input, else_expr) = expect(expr, "expected expression after 'else'")(input)?;
+
+    Ok((
+        input,
+        ParsedIf {
+            pred_expr: pred_expr.unwrap_or(ParseExpr::Error),
+            then_expr: then_expr.unwrap_or(ParseExpr::Error),
+            else_expr: else_expr.unwrap_or(ParseExpr::Error),
+        },
+    ))
+}
+
+fn error(input: LocatedSpan) -> IResult<ParseExpr> {
+    map(take_till1(|c| c == ')'), |span: LocatedSpan| {
+        let err = Error(span.to_range(), format!("unexpected `{}`", span.fragment()));
+        span.extra.report_error(err);
+        ParseExpr::Error
+    })(input)
+}
+
+// our main Expr parser, basically, try all the parsers
+fn expr(input: LocatedSpan) -> IResult<ParseExpr> {
+    alt((ann, prim, iff, ident, error))(input)
+}
+
+// parse a whole source file
+fn source_file(input: LocatedSpan) -> IResult<ParseExpr> {
+    let expr = alt((expr, map(take(0usize), |_| ParseExpr::Error)));
+    terminated(expr, preceded(expect(not(anychar), "expected EOF"), rest))(input)
+}
+
+pub fn parse<'a>(errors: &'a RefCell<Vec<Error>>, source: &'a str) -> (ParseExpr<'a>, Vec<Error>) {
+    let input = LocatedSpan::new_extra(source, State(&errors));
+    let (_, expr) = all_consuming(source_file)(input).expect("parser cannot fail");
+    let copied_errors = errors.clone().into_inner().clone();
+
+    (expr, copied_errors)
+}
+
+pub fn parse_type<'a>(
+    errors: &'a RefCell<Vec<Error>>,
+    source: &'a str,
+) -> (ParseType<'a>, Vec<Error>) {
+    let input = LocatedSpan::new_extra(source, State(&errors));
+    let (_, ty) = all_consuming(ty)(input).expect("parser cannot fail");
+    (ty, errors.clone().into_inner())
+}
+
+pub fn main() {
+    for input in &["foo", "(foo)", "(foo))", "(%", "(", "%", "()", ""] {
+        let errors = RefCell::new(Vec::new());
+        println!("{:7} {:?}", input, parse(&errors, input));
+    }
+}
+
+//////// prims
+
+fn is_int_digit(c: char) -> bool {
+    c.is_ascii_digit()
+}
+
+fn int_primary(input: LocatedSpan) -> IResult<u8> {
+    map_res(take_while_m_n(1, 12, is_int_digit), from_int)(input)
+}
+
+fn from_int(input: LocatedSpan) -> Result<u8, std::num::ParseIntError> {
+    input.parse::<u8>()
+}
+
+fn int<'a>(input: LocatedSpan<'a>) -> IResult<Prim> {
+    let (input, int_val) = int_primary(input)?;
+    Ok((input, Prim::IntLit(i64::from(int_val))))
+}
+
+fn parse_true(input: LocatedSpan) -> IResult<Prim> {
+    map(tag("True"), |_| Prim::Boolean(true))(input)
+}
+
+fn parse_false(input: LocatedSpan) -> IResult<Prim> {
+    map(tag("False"), |_| Prim::Boolean(false))(input)
+}
+
+fn bool(input: LocatedSpan) -> IResult<Prim> {
+    (alt((parse_true, parse_false)))(input)
+}
+
+fn prim(input: LocatedSpan) -> IResult<ParseExpr> {
+    map(ws(with_annotation(alt((bool, int)))), |(ann, prim)| {
+        ParseExpr::Prim { ann, prim }
+    })(input)
+}
+
+/// A combinator that takes a parser `inner` and produces a parser that also consumes both leading and
+/// trailing whitespace, returning the output of `inner`.
+pub fn ws<'a, F, T>(inner: F) -> impl FnMut(LocatedSpan<'a>) -> IResult<T>
+where
+    F: FnMut(LocatedSpan<'a>) -> IResult<T>,
+{
+    preceded(multispace0, inner)
+}
+
+fn parse_ann_internal(input: LocatedSpan) -> IResult<(Option<ParseType>, Option<ParseExpr>)> {
+    let (input, _) = tag("(")(input)?;
+
+    let (input, expr) = expect(expr, "expected expression after '('")(input)?;
+
+    let (input, _) = expect(ws(tag(":")), "expected ':'")(input)?;
+
+    let (input, ty) = expect(ty, "expected type after ':'")(input)?;
+
+    let (input, _) = expect(tag(")"), "expected closing ')'")(input)?;
+
+    Ok((input, (ty, expr)))
+}
+
+fn ann(input: LocatedSpan) -> IResult<ParseExpr> {
+    let (input, (ann, (ty, expr))) = ws(with_annotation(parse_ann_internal))(input)?;
+
+    Ok((
+        input,
+        ParseExpr::Ann {
+            ann,
+            ty,
+            expr: Box::new(expr.unwrap_or(ParseExpr::Error)),
+        },
+    ))
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ParseConvertError {
+    FoundError,
+    FoundIdent,
+    MissingTypeAnnotation,
+}
+
+// turn this into our 'real' expr that does not include `Error`
+// so we can typecheck it and generally try it out
+pub fn to_real_expr<'a>(
+    parse_expr: ParseExpr<'a>,
+) -> Result<Expr<StaticAnnotation<'a>>, ParseConvertError> {
+    match parse_expr {
+        ParseExpr::Ann { ann, ty, expr } => Ok(Expr::EAnn {
+            ann: to_real_ann(ann),
+            ty: to_real_ty(ty)?,
+            expr: Box::new(to_real_expr(*expr)?),
+        }),
+        ParseExpr::Prim { ann, prim } => Ok(Expr::EPrim {
+            ann: to_real_ann(ann),
+            prim,
+        }),
+        ParseExpr::Ident { .. } => Err(ParseConvertError::FoundIdent),
+        ParseExpr::If {
+            ann,
+            pred_expr,
+            then_expr,
+            else_expr,
+        } => Ok(Expr::EIf {
+            ann: to_real_ann(ann),
+            pred_expr: Box::new(to_real_expr(*pred_expr)?),
+            then_expr: Box::new(to_real_expr(*then_expr)?),
+            else_expr: Box::new(to_real_expr(*else_expr)?),
+        }),
+        ParseExpr::Error => Err(ParseConvertError::FoundError),
+    }
+}
+
+pub fn to_real_ty<'a>(
+    parse_ty: Option<ParseType<'a>>,
+) -> Result<Type<StaticAnnotation<'a>>, ParseConvertError> {
+    parse_ty
+        .map(|ty| match ty {
+            ParseType::Prim { ann, type_prim } => Type::TPrim {
+                ann: to_real_ann(ann),
+                type_prim,
+            },
+        })
+        .ok_or_else(|| ParseConvertError::MissingTypeAnnotation)
+}
+
+fn to_real_ann<'a>(ann: ParseAnnotation<'a>) -> StaticAnnotation<'a> {
+    Annotation {
+        start: ann.start.map_extra(|_| ()),
+        end: ann.end.map_extra(|_| ()),
+    }
 }

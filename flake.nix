@@ -71,6 +71,7 @@
           # from the toolchain that was specified earlier.
           packages = [
             pkgs.cargo-insta
+            pkgs.rust-analyzer
           ];
         };
       });
