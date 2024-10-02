@@ -123,7 +123,7 @@ impl LanguageServer for Backend {
 }
 
 enum CompileError<'a> {
-    ParseError(()),
+    ParseError(Vec<frame::parser::Error>),
     TypeError(Box<TypeError<StaticAnnotation<'a>>>),
 }
 
@@ -134,18 +134,20 @@ fn compile<'a>(
     Result<Expr<Type<StaticAnnotation<'a>>>, CompileError<'a>>,
     Vec<Warning<StaticAnnotation<'a>>>,
 ) {
-    let (parse_result, _) = frame::parser::parse(&ref_cell, input);
+    let (parse_result, errs) = frame::parser::parse(&ref_cell, input);
     let result = frame::parser::to_real_expr(parse_result);
 
     match result {
         Ok(input_expr) => {
+            // todo, also add parser `errs` here too
+            // as we may partially parse but still be able to typecheck some stuff
             let mut warnings = vec![];
             let result = frame::typecheck::infer(&input_expr, &mut warnings)
                 .map_err(|e| CompileError::TypeError(Box::new(e)));
 
             (result, warnings)
         }
-        Err(_) => (Err(CompileError::ParseError(())), vec![]),
+        Err(_) => (Err(CompileError::ParseError(errs)), vec![]),
     }
 }
 
