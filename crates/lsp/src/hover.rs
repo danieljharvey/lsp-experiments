@@ -3,7 +3,6 @@ use frame::{
     typecheck::get_outer_type_annotation,
     types::{Expr, Type},
 };
-use std::cell::RefCell;
 use tower_lsp::lsp_types::*;
 
 pub fn hover_from_expr(inner_expr: &Expr<Type<StaticAnnotation>>) -> Hover {
@@ -57,7 +56,7 @@ pub fn annotation_matches(ann: &StaticAnnotation, cursor_line: u32, cursor_col: 
 
 #[test]
 fn test_matches() {
-    let ref_cell = RefCell::new(vec![]);
+    let ref_cell = std::cell::RefCell::new(vec![]);
     let (parse_expr, _) = frame::parser::parse(&ref_cell, "if True then (1: Int64)\nelse 2");
     let expr = frame::parser::to_real_expr(parse_expr).expect("parsing expr");
 

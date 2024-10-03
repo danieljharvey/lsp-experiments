@@ -32,6 +32,7 @@ trait ToRange {
     fn to_range(&self) -> Range<usize>;
 }
 
+// this suggests we're using LocatedSpan wrong
 impl<'a> ToRange for LocatedSpan<'a> {
     fn to_range(&self) -> Range<usize> {
         let start = self.location_offset();
@@ -41,13 +42,20 @@ impl<'a> ToRange for LocatedSpan<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Error(Range<usize>, String);
+pub struct Error<Span> {
+    pub annotation: Annotation<Span>,
+    pub message: String,
+}
+
+pub type ParseError<'a> = Error<LocatedSpan<'a>>;
+
+pub type StaticParseError<'a> = Error<nom_locate::LocatedSpan<&'a str, ()>>;
 
 #[derive(Clone, Debug)]
-pub struct State<'a>(&'a RefCell<Vec<Error>>);
+pub struct State<'a>(&'a RefCell<Vec<ParseError<'a>>>);
 
 impl<'a> State<'a> {
-    pub fn report_error(&self, error: Error) {
+    pub fn report_error(&self, error: ParseError<'a>) {
         self.0.borrow_mut().push(error);
     }
 }
@@ -80,7 +88,13 @@ where
         Ok((remaining, out)) => Ok((remaining, Some(out))),
         Err(nom::Err::Error(nom::error::Error { input, .. }))
         | Err(nom::Err::Failure(nom::error::Error { input, .. })) => {
-            let err = Error(input.to_range(), error_msg.to_string());
+            let err = Error {
+                annotation: Annotation {
+                    start: input.clone(),
+                    end: input.clone(),
+                },
+                message: error_msg.to_string(),
+            };
             input.extra.report_error(err);
             Ok((input, None))
         }
@@ -202,7 +216,13 @@ fn parse_if_internal(input: LocatedSpan) -> IResult<ParsedIf> {
 
 fn error(input: LocatedSpan) -> IResult<ParseExpr> {
     map(take_till1(|c| c == ')'), |span: LocatedSpan| {
-        let err = Error(span.to_range(), format!("unexpected `{}`", span.fragment()));
+        let err = Error {
+            annotation: Annotation {
+                start: span.clone(),
+                end: span.clone(),
+            },
+            message: format!("unexpected `{}`", span.fragment()),
+        };
         span.extra.report_error(err);
         ParseExpr::Error
     })(input)
@@ -219,7 +239,13 @@ fn source_file(input: LocatedSpan) -> IResult<ParseExpr> {
     terminated(expr, preceded(expect(not(anychar), "expected EOF"), rest))(input)
 }
 
-pub fn parse<'a>(errors: &'a RefCell<Vec<Error>>, source: &'a str) -> (ParseExpr<'a>, Vec<Error>) {
+pub fn parse<'a, 'state>(
+    errors: &'state RefCell<Vec<ParseError<'a>>>,
+    source: &'a str,
+) -> (ParseExpr<'a>, Vec<ParseError<'a>>)
+where
+    'state: 'a,
+{
     let input = LocatedSpan::new_extra(source, State(&errors));
     let (_, expr) = all_consuming(source_file)(input).expect("parser cannot fail");
     let copied_errors = errors.clone().into_inner().clone();
@@ -227,11 +253,14 @@ pub fn parse<'a>(errors: &'a RefCell<Vec<Error>>, source: &'a str) -> (ParseExpr
     (expr, copied_errors)
 }
 
-pub fn parse_type<'a>(
-    errors: &'a RefCell<Vec<Error>>,
+pub fn parse_type<'a, 'state>(
+    errors: &'state RefCell<Vec<ParseError<'a>>>,
     source: &'a str,
-) -> (ParseType<'a>, Vec<Error>) {
-    let input = LocatedSpan::new_extra(source, State(&errors));
+) -> (ParseType<'a>, Vec<ParseError<'a>>)
+where
+    'state: 'a,
+{
+    let input = LocatedSpan::new_extra(source, State(errors));
     let (_, ty) = all_consuming(ty)(input).expect("parser cannot fail");
     (ty, errors.clone().into_inner())
 }
@@ -257,7 +286,7 @@ fn from_int(input: LocatedSpan) -> Result<u8, std::num::ParseIntError> {
     input.parse::<u8>()
 }
 
-fn int<'a>(input: LocatedSpan<'a>) -> IResult<Prim> {
+fn int(input: LocatedSpan) -> IResult<Prim> {
     let (input, int_val) = int_primary(input)?;
     Ok((input, Prim::IntLit(i64::from(int_val))))
 }
@@ -325,9 +354,7 @@ pub enum ParseConvertError {
 
 // turn this into our 'real' expr that does not include `Error`
 // so we can typecheck it and generally try it out
-pub fn to_real_expr<'a>(
-    parse_expr: ParseExpr<'a>,
-) -> Result<Expr<StaticAnnotation<'a>>, ParseConvertError> {
+pub fn to_real_expr(parse_expr: ParseExpr) -> Result<Expr<StaticAnnotation>, ParseConvertError> {
     match parse_expr {
         ParseExpr::Ann { ann, ty, expr } => Ok(Expr::EAnn {
             ann: to_real_ann(ann),
@@ -354,9 +381,9 @@ pub fn to_real_expr<'a>(
     }
 }
 
-pub fn to_real_ty<'a>(
-    parse_ty: Option<ParseType<'a>>,
-) -> Result<Type<StaticAnnotation<'a>>, ParseConvertError> {
+pub fn to_real_ty(
+    parse_ty: Option<ParseType>,
+) -> Result<Type<StaticAnnotation>, ParseConvertError> {
     parse_ty
         .map(|ty| match ty {
             ParseType::Prim { ann, type_prim } => Type::TPrim {
@@ -364,12 +391,19 @@ pub fn to_real_ty<'a>(
                 type_prim,
             },
         })
-        .ok_or_else(|| ParseConvertError::MissingTypeAnnotation)
+        .ok_or(ParseConvertError::MissingTypeAnnotation)
 }
 
-fn to_real_ann<'a>(ann: ParseAnnotation<'a>) -> StaticAnnotation<'a> {
+fn to_real_ann(ann: ParseAnnotation) -> StaticAnnotation {
     Annotation {
         start: ann.start.map_extra(|_| ()),
         end: ann.end.map_extra(|_| ()),
+    }
+}
+
+pub fn to_real_error(error: ParseError) -> StaticParseError {
+    Error {
+        annotation: to_real_ann(error.annotation),
+        message: error.message,
     }
 }

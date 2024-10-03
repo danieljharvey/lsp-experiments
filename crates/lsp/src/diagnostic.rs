@@ -1,8 +1,8 @@
+use super::CompileResult;
 use crate::CompileError;
 use frame::{
     parser::StaticAnnotation,
     typecheck::{get_outer_type_annotation, TypeError, Warning},
-    types::{Expr, Type},
 };
 use tower_lsp::lsp_types::*;
 
@@ -52,17 +52,26 @@ pub fn to_diagnostic(diag: &Diag) -> Diagnostic {
 
 // get all diagnostics given compiler output
 // for now, just errors, but we can also emit warnings on success
-pub fn get_diagnostics<'a>(
-    (result, warnings): (
-        Result<Expr<Type<StaticAnnotation<'a>>>, CompileError<'a>>,
-        Vec<Warning<StaticAnnotation<'a>>>,
-    ),
-) -> Vec<Diag<'a>> {
+pub fn get_diagnostics(
+    CompileResult {
+        expr_result: result,
+        type_warnings: warnings,
+    }: CompileResult,
+) -> Vec<Diag> {
     let mut error_diagostics = match result {
         Ok(_) => vec![],
-        Err(CompileError::ParseError(_nom_err)) => {
-            vec![] // it'll not be a nom error now
+        Err(CompileError::ParseError(warnings)) => {
+            /*warnings
+                        .into_iter()
+                        .map(|(range, message)| Diag::Error {
+                            message,
+                            annotation: warning.location,
+                        })
+                        .collect(),
+            */
+            vec![]
         }
+
         Err(CompileError::TypeError(type_error)) => match *type_error {
             TypeError::UnknownIntegerLiteral { ann } => {
                 vec![Diag::Error {

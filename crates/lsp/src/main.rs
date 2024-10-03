@@ -107,9 +107,15 @@ impl LanguageServer for Backend {
 
             let ref_cell = RefCell::new(vec![]);
             match compile(&ref_cell, &input) {
-                (Ok(expr), _warnings) => Ok(hover::find_most_specific_type(&expr, line, character)
+                CompileResult {
+                    expr_result: Ok(expr),
+                    type_warnings: _,
+                } => Ok(hover::find_most_specific_type(&expr, line, character)
                     .map(hover::hover_from_expr)),
-                (Err(_), _warnings) => Ok(None),
+                CompileResult {
+                    expr_result: Err(_),
+                    type_warnings: _,
+                } => Ok(None),
             }
             // now parse the file and typecheck it and all that shit
         } else {
@@ -123,31 +129,46 @@ impl LanguageServer for Backend {
 }
 
 enum CompileError<'a> {
-    ParseError(Vec<frame::parser::Error>),
+    ParseError(Vec<frame::parser::StaticParseError<'a>>),
     TypeError(Box<TypeError<StaticAnnotation<'a>>>),
 }
 
-fn compile<'a>(
-    ref_cell: &'a RefCell<Vec<frame::parser::Error>>,
+struct CompileResult<'a> {
+    pub expr_result: Result<Expr<Type<StaticAnnotation<'a>>>, CompileError<'a>>,
+    pub type_warnings: Vec<Warning<StaticAnnotation<'a>>>,
+}
+
+fn compile<'a, 'state>(
+    ref_cell: &'state RefCell<Vec<frame::parser::ParseError<'a>>>,
     input: &'a str,
-) -> (
-    Result<Expr<Type<StaticAnnotation<'a>>>, CompileError<'a>>,
-    Vec<Warning<StaticAnnotation<'a>>>,
-) {
-    let (parse_result, errs) = frame::parser::parse(&ref_cell, input);
+) -> CompileResult<'a>
+where
+    'state: 'a,
+{
+    let (parse_result, errors) = frame::parser::parse(ref_cell, input);
     let result = frame::parser::to_real_expr(parse_result);
+    let static_errs = errors
+        .into_iter()
+        .map(|err| frame::parser::to_real_error(err))
+        .collect();
 
     match result {
         Ok(input_expr) => {
             // todo, also add parser `errs` here too
             // as we may partially parse but still be able to typecheck some stuff
-            let mut warnings = vec![];
-            let result = frame::typecheck::infer(&input_expr, &mut warnings)
+            let mut type_warnings = vec![];
+            let expr_result = frame::typecheck::infer(&input_expr, &mut type_warnings)
                 .map_err(|e| CompileError::TypeError(Box::new(e)));
 
-            (result, warnings)
+            CompileResult {
+                expr_result,
+                type_warnings,
+            }
         }
-        Err(_) => (Err(CompileError::ParseError(errs)), vec![]),
+        Err(_) => CompileResult {
+            expr_result: Err(CompileError::ParseError(static_errs)),
+            type_warnings: vec![],
+        },
     }
 }
 
