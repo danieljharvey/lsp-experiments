@@ -96,6 +96,12 @@ pub fn get_diagnostics(
                     annotation: ann,
                 }]
             }
+            TypeError::UnknownVariable { var, ann } => {
+                vec![Diag::Error {
+                    message: format!("Unknown variable {var}"),
+                    annotation: ann,
+                }]
+            }
             TypeError::LiteralMismatch {
                 ann,
                 prim,

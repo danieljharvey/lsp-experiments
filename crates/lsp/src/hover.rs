@@ -106,6 +106,13 @@ pub fn find_most_specific_type<'a>(
                 None
             }
         }
+        Expr::EIdent { ann, .. } => {
+            if annotation_matches(get_outer_type_annotation(ann), line, character) {
+                Some(expr)
+            } else {
+                None
+            }
+        }
         Expr::EIf {
             ann,
             pred_expr,

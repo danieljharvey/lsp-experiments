@@ -32,31 +32,16 @@ pub fn infer<Ann: Clone>(
                 prim: prim.clone(),
             })
         }
+        Expr::EIdent { ann, var } => Err(TypeError::UnknownVariable {
+            var: var.clone(),
+            ann: ann.clone(),
+        }),
         Expr::EIf {
             ann,
             pred_expr,
             then_expr,
             else_expr,
-        } => {
-            let typed_pred_expr = check(
-                &Type::TPrim {
-                    ann: get_outer_expr_annotation(pred_expr).clone(),
-                    type_prim: TypePrim::TBoolean,
-                },
-                pred_expr,
-                warnings,
-            )?;
-            let typed_then_expr = infer(then_expr, warnings)?;
-            let ty_then = get_outer_expr_annotation(&typed_then_expr);
-            let typed_else_expr = check(ty_then, else_expr, warnings)?;
-            let ty = set_outer_type_annotation(ty_then, ann);
-            Ok(Expr::EIf {
-                ann: ty,
-                pred_expr: Box::new(typed_pred_expr),
-                then_expr: Box::new(typed_then_expr),
-                else_expr: Box::new(typed_else_expr),
-            })
-        }
+        } => check_if(None, ann, pred_expr, then_expr, else_expr, warnings),
         Expr::EAnn { ann, ty, expr } => {
             let typed_expr = check(ty, expr, warnings)?;
             let inferred_type = get_outer_expr_annotation(&typed_expr);
@@ -74,6 +59,37 @@ pub fn infer<Ann: Clone>(
     }
 }
 
+fn check_if<Ann: Clone>(
+    maybe_ty: Option<&Type<Ann>>,
+    ann: &Ann,
+    pred_expr: &Expr<Ann>,
+    then_expr: &Expr<Ann>,
+    else_expr: &Expr<Ann>,
+    warnings: &mut Vec<Warning<Ann>>,
+) -> Result<Expr<Type<Ann>>, TypeError<Ann>> {
+    let typed_pred_expr = check(
+        &Type::TPrim {
+            ann: get_outer_expr_annotation(pred_expr).clone(),
+            type_prim: TypePrim::TBoolean,
+        },
+        pred_expr,
+        warnings,
+    )?;
+    let typed_then_expr = match maybe_ty {
+        Some(ty) => check(ty, then_expr, warnings),
+        None => infer(then_expr, warnings),
+    }?;
+    let ty_then = get_outer_expr_annotation(&typed_then_expr);
+    let typed_else_expr = check(ty_then, else_expr, warnings)?;
+    let ty = set_outer_type_annotation(ty_then, ann);
+    Ok(Expr::EIf {
+        ann: ty,
+        pred_expr: Box::new(typed_pred_expr),
+        then_expr: Box::new(typed_then_expr),
+        else_expr: Box::new(typed_else_expr),
+    })
+}
+
 // given a type, try and work out what we have here
 fn check<Ann: Clone>(
     ty: &Type<Ann>,
@@ -81,6 +97,23 @@ fn check<Ann: Clone>(
     warnings: &mut Vec<Warning<Ann>>,
 ) -> Result<Expr<Type<Ann>>, TypeError<Ann>> {
     match (ty, expr) {
+        (
+            ty,
+            Expr::EIf {
+                ann,
+                pred_expr,
+                then_expr,
+                else_expr,
+            },
+        ) => check_if(Some(ty), ann, pred_expr, then_expr, else_expr, warnings),
+        (ty, Expr::EIdent { ann, var }) => {
+            // whatever the type sig says goes
+            let ty_ident = set_outer_type_annotation(ty, ann);
+            Ok(Expr::EIdent {
+                ann: ty_ident,
+                var: var.clone(),
+            })
+        }
         (Type::TPrim { type_prim, .. }, Expr::EPrim { prim, ann }) => {
             check_prim(ann, type_prim, prim)?;
             Ok(Expr::EPrim {

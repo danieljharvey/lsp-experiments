@@ -6,6 +6,7 @@ use std::cell::RefCell;
 fn void_expr<Ann>(expr: Expr<Ann>) -> Expr<()> {
     match expr {
         Expr::EPrim { prim, .. } => Expr::EPrim { ann: (), prim },
+        Expr::EIdent { var, .. } => Expr::EIdent { ann: (), var },
         Expr::EIf {
             pred_expr,
             then_expr,
@@ -36,6 +37,7 @@ fn void_type_error<Ann>(type_error: TypeError<Ann>) -> TypeError<()> {
             expected: void_type(expected),
             actual: void_type(actual),
         },
+        TypeError::UnknownVariable { var, .. } => TypeError::UnknownVariable { ann: (), var },
         TypeError::LiteralMismatch {
             prim, type_prim, ..
         } => TypeError::LiteralMismatch {
@@ -57,6 +59,27 @@ fn test_parse() {
         (" True", bool((), true)),
         ("False", bool((), false)),
         ("    True100", bool((), true)),
+        (
+            "dog",
+            Expr::EIdent {
+                ann: (),
+                var: "dog".to_string(),
+            },
+        ),
+        (
+            " (   dog: Int64)",
+            Expr::EAnn {
+                ann: (),
+                ty: Type::TPrim {
+                    ann: (),
+                    type_prim: TypePrim::TInt64,
+                },
+                expr: Box::new(Expr::EIdent {
+                    ann: (),
+                    var: "dog".to_string(),
+                }),
+            },
+        ),
         (
             "if 1 then False else True",
             mk_if((), int((), 1), bool((), false), bool((), true)),
@@ -95,7 +118,8 @@ fn test_typecheck_success() {
         ("False", "Boolean"),
         ("if True then False else True", "Boolean"),
         ("if True then (1: Int64) else 2", "Int64"),
-        //        ("(if True then 1 else 2 : Int64)", "Int64"),
+        ("(if True then 1 else 2 : Int64)", "Int64"),
+        ("(dog: Int64)", "Int64"),
     ];
 
     for (input, expected) in tests {

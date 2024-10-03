@@ -1,60 +1,24 @@
 pub mod constructors;
+mod convert;
+mod types;
 
+pub use convert::{to_real_expr, to_real_ty};
 use std::cell::RefCell;
-use std::ops::Range;
+pub use types::{
+    Annotation, IResult, LocatedSpan, ParseAnnotation, ParseError, ParseExpr, ParseType, State,
+    StaticAnnotation, ToRange,
+};
 
-use crate::types::{Expr, Prim, Type, TypePrim};
+use crate::types::{Prim, TypePrim};
 use nom::branch::alt;
 use nom::bytes::complete::{take, take_till1};
 use nom::character::complete::{anychar, multispace0};
-use nom::combinator::{all_consuming, map, not, rest};
+use nom::combinator::{all_consuming, map, not, recognize, rest, verify};
 use nom::sequence::{preceded, terminated};
 use nom::{
-    bytes::complete::{tag, take_while_m_n},
+    bytes::complete::{tag, take_while, take_while_m_n},
     combinator::map_res,
 };
-
-type IResult<'a, T> = nom::IResult<LocatedSpan<'a>, T>;
-
-pub type LocatedSpan<'a> = nom_locate::LocatedSpan<&'a str, State<'a>>;
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Annotation<Span> {
-    pub start: Span,
-    pub end: Span,
-}
-
-type ParseAnnotation<'a> = Annotation<LocatedSpan<'a>>;
-
-pub type StaticAnnotation<'a> = Annotation<nom_locate::LocatedSpan<&'a str, ()>>;
-
-trait ToRange {
-    fn to_range(&self) -> Range<usize>;
-}
-
-// this suggests we're using LocatedSpan wrong
-impl<'a> ToRange for LocatedSpan<'a> {
-    fn to_range(&self) -> Range<usize> {
-        let start = self.location_offset();
-        let end = start + self.fragment().len();
-        start..end
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ParseError {
-    pub range: Range<usize>,
-    pub message: String,
-}
-
-#[derive(Clone, Debug)]
-pub struct State<'a>(&'a RefCell<Vec<ParseError>>);
-
-impl<'a> State<'a> {
-    pub fn report_error(&self, error: ParseError) {
-        self.0.borrow_mut().push(error);
-    }
-}
 
 // given a parser, return a parser that returns the result and an Annotation describing the source
 // location
@@ -95,35 +59,6 @@ where
     }
 }
 
-#[derive(Debug)]
-pub enum ParseExpr<'a> {
-    Prim {
-        ann: ParseAnnotation<'a>,
-        prim: Prim,
-    },
-    If {
-        ann: ParseAnnotation<'a>,
-        pred_expr: Box<ParseExpr<'a>>,
-        then_expr: Box<ParseExpr<'a>>,
-        else_expr: Box<ParseExpr<'a>>,
-    },
-    Ann {
-        ann: ParseAnnotation<'a>,
-        ty: Option<ParseType<'a>>,
-        expr: Box<ParseExpr<'a>>,
-    },
-    Error,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum ParseType<'a> {
-    Prim {
-        ann: ParseAnnotation<'a>,
-        type_prim: TypePrim,
-    },
-}
-
-/*
 fn ident(input: LocatedSpan) -> IResult<ParseExpr> {
     let first = verify(anychar, |c| c.is_ascii_alphabetic() || *c == '_');
     let rest = take_while(|c: char| c.is_ascii_alphanumeric() || "_-'".contains(c));
@@ -131,11 +66,10 @@ fn ident(input: LocatedSpan) -> IResult<ParseExpr> {
     map(ident, |(ann, span): (ParseAnnotation, LocatedSpan)| {
         ParseExpr::Ident {
             ann,
-            ident: Ident(span.fragment().to_string()),
+            var: span.fragment().to_string(),
         }
     })(input)
 }
-*/
 
 // Need to add more types as we need them pls
 fn parse_type_prim(input: LocatedSpan) -> IResult<TypePrim> {
@@ -215,7 +149,7 @@ fn error(input: LocatedSpan) -> IResult<ParseExpr> {
 
 // our main Expr parser, basically, try all the parsers
 fn expr(input: LocatedSpan) -> IResult<ParseExpr> {
-    alt((ann, prim, iff, error))(input)
+    alt((ann, prim, iff, ident, error))(input)
 }
 
 // parse a whole source file
@@ -328,58 +262,4 @@ fn ann(input: LocatedSpan) -> IResult<ParseExpr> {
             expr: Box::new(expr.unwrap_or(ParseExpr::Error)),
         },
     ))
-}
-
-#[derive(Debug, PartialEq)]
-pub enum ParseConvertError {
-    FoundError,
-    MissingTypeAnnotation,
-}
-
-// turn this into our 'real' expr that does not include `Error`
-// so we can typecheck it and generally try it out
-pub fn to_real_expr(parse_expr: ParseExpr) -> Result<Expr<StaticAnnotation>, ParseConvertError> {
-    match parse_expr {
-        ParseExpr::Ann { ann, ty, expr } => Ok(Expr::EAnn {
-            ann: to_real_ann(ann),
-            ty: to_real_ty(ty)?,
-            expr: Box::new(to_real_expr(*expr)?),
-        }),
-        ParseExpr::Prim { ann, prim } => Ok(Expr::EPrim {
-            ann: to_real_ann(ann),
-            prim,
-        }),
-        ParseExpr::If {
-            ann,
-            pred_expr,
-            then_expr,
-            else_expr,
-        } => Ok(Expr::EIf {
-            ann: to_real_ann(ann),
-            pred_expr: Box::new(to_real_expr(*pred_expr)?),
-            then_expr: Box::new(to_real_expr(*then_expr)?),
-            else_expr: Box::new(to_real_expr(*else_expr)?),
-        }),
-        ParseExpr::Error => Err(ParseConvertError::FoundError),
-    }
-}
-
-pub fn to_real_ty(
-    parse_ty: Option<ParseType>,
-) -> Result<Type<StaticAnnotation>, ParseConvertError> {
-    parse_ty
-        .map(|ty| match ty {
-            ParseType::Prim { ann, type_prim } => Type::TPrim {
-                ann: to_real_ann(ann),
-                type_prim,
-            },
-        })
-        .ok_or(ParseConvertError::MissingTypeAnnotation)
-}
-
-fn to_real_ann(ann: ParseAnnotation) -> StaticAnnotation {
-    Annotation {
-        start: ann.start.map_extra(|_| ()),
-        end: ann.end.map_extra(|_| ()),
-    }
 }

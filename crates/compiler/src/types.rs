@@ -52,6 +52,10 @@ impl<Ann> Display for &Type<Ann> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr<Ann> {
+    EIdent {
+        ann: Ann,
+        var: String,
+    },
     EPrim {
         ann: Ann,
         prim: Prim,
@@ -83,6 +87,7 @@ impl<Ann> Display for Expr<Ann> {
                 "if {} then {} else {}",
                 &pred_expr, &then_expr, &else_expr
             ),
+            Expr::EIdent { var, .. } => write!(f, "{var}"),
             Expr::EAnn { ty, expr, .. } => write!(f, "({}: {})", &expr, ty),
         }
     }

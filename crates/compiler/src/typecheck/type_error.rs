@@ -5,6 +5,10 @@ use std::ops::Range;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeError<Ann> {
+    UnknownVariable {
+        ann: Ann,
+        var: String,
+    },
     UnknownIntegerLiteral {
         ann: Ann,
     },
@@ -36,6 +40,15 @@ pub fn to_report<'a>(
                 "This could be an Int8, Int16, Int32 or Int64. Consider adding a type annotation",
             ))
             .finish(),
+        TypeError::UnknownVariable { var, ann } => Report::build(ReportKind::Error, (), 12)
+            .with_code(1)
+            .with_message("Unknown variable")
+            .with_label(
+                Label::new(range_from_annotation(ann))
+                    .with_message(format!("Can't find variable {var}")),
+            )
+            .finish(),
+
         TypeError::TypeMismatch { expected, actual } => Report::build(ReportKind::Error, (), 12)
             .with_code(2)
             .with_message("Type mismatch")
