@@ -56,6 +56,12 @@ pub enum Expr<Ann> {
         ann: Ann,
         var: String,
     },
+    ELet {
+        ann: Ann,
+        var: String,
+        expr: Box<Expr<Ann>>,
+        rest: Box<Expr<Ann>>,
+    },
     EPrim {
         ann: Ann,
         prim: Prim,
@@ -77,6 +83,9 @@ impl<Ann> Display for Expr<Ann> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         match self {
             Expr::EPrim { prim, .. } => prim.fmt(f),
+            Expr::ELet {
+                var, expr, rest, ..
+            } => write!(f, "let {} = {}; {}", var, expr, rest),
             Expr::EIf {
                 pred_expr,
                 then_expr,

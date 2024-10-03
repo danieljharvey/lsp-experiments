@@ -13,7 +13,7 @@ use crate::types::{Prim, TypePrim};
 use nom::branch::alt;
 use nom::bytes::complete::{take, take_till1};
 use nom::character::complete::{anychar, multispace0};
-use nom::combinator::{all_consuming, map, not, recognize, rest, verify};
+use nom::combinator::{all_consuming, map, map_opt, not, recognize, rest, verify};
 use nom::sequence::{preceded, terminated};
 use nom::{
     bytes::complete::{tag, take_while, take_while_m_n},
@@ -59,15 +59,27 @@ where
     }
 }
 
-fn ident(input: LocatedSpan) -> IResult<ParseExpr> {
+fn ident_inner(input: LocatedSpan) -> IResult<String> {
     let first = verify(anychar, |c| c.is_ascii_alphabetic() || *c == '_');
     let rest = take_while(|c: char| c.is_ascii_alphanumeric() || "_-'".contains(c));
-    let ident = ws(with_annotation(recognize(preceded(first, rest))));
-    map(ident, |(ann, span): (ParseAnnotation, LocatedSpan)| {
-        ParseExpr::Ident {
-            ann,
-            var: span.fragment().to_string(),
+    let ident = recognize(preceded(first, rest));
+    map_opt(ident, |span: LocatedSpan| {
+        let str = span.fragment().to_string();
+
+        let protected: [&str; 4] = ["if", "then", "else", "let"];
+
+        if protected.contains(&str.as_str()) {
+            None
+        } else {
+            Some(str)
         }
+    })(input)
+}
+
+fn ident(input: LocatedSpan) -> IResult<ParseExpr> {
+    let parser = ws(with_annotation(ident_inner));
+    map(parser, |(ann, var): (ParseAnnotation, String)| {
+        ParseExpr::Ident { ann, var }
     })(input)
 }
 
@@ -117,7 +129,7 @@ struct ParsedIf<'a> {
 }
 
 fn parse_if_internal(input: LocatedSpan) -> IResult<ParsedIf> {
-    let (input, _) = tag("if")(input)?;
+    let (input, _) = ws(tag("if"))(input)?;
     let (input, pred_expr) = expect(expr, "expected expression after 'if'")(input)?;
 
     let (input, _) = ws(tag("then"))(input)?;
@@ -136,6 +148,33 @@ fn parse_if_internal(input: LocatedSpan) -> IResult<ParsedIf> {
     ))
 }
 
+fn let_internal(input: LocatedSpan) -> IResult<(String, Option<ParseExpr>, Option<ParseExpr>)> {
+    let (input, _) = ws(tag("let"))(input)?;
+    let (input, ident) = ws(ident_inner)(input)?;
+
+    let (input, _) = ws(tag("="))(input)?;
+    let (input, exp) = expect(expr, "expected expression after '='")(input)?;
+
+    let (input, _) = ws(tag(";"))(input)?;
+    let (input, rest) = expect(expr, "expected next expression")(input)?;
+
+    Ok((input, (ident, exp, rest)))
+}
+
+fn lett(input: LocatedSpan) -> IResult<ParseExpr> {
+    let (input, (ann, (var, expr, rest))) = with_annotation(let_internal)(input)?;
+
+    Ok((
+        input,
+        ParseExpr::Let {
+            ann,
+            var,
+            expr: Box::new(expr.unwrap_or(ParseExpr::Error)),
+            rest: Box::new(rest.unwrap_or(ParseExpr::Error)),
+        },
+    ))
+}
+
 fn error(input: LocatedSpan) -> IResult<ParseExpr> {
     map(take_till1(|c| c == ')'), |span: LocatedSpan| {
         let err = ParseError {
@@ -149,7 +188,7 @@ fn error(input: LocatedSpan) -> IResult<ParseExpr> {
 
 // our main Expr parser, basically, try all the parsers
 fn expr(input: LocatedSpan) -> IResult<ParseExpr> {
-    alt((ann, prim, iff, ident, error))(input)
+    alt((ann, lett, prim, iff, ident, error))(input)
 }
 
 // parse a whole source file

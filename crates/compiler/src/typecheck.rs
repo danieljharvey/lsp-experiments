@@ -36,6 +36,25 @@ pub fn infer<Ann: Clone>(
             var: var.clone(),
             ann: ann.clone(),
         }),
+        Expr::ELet {
+            ann,
+            var,
+            expr,
+            rest,
+        } => {
+            let typed_expr = infer(expr, warnings)?;
+
+            let typed_rest = infer(rest, warnings)?;
+            let inferred_type = get_outer_expr_annotation(&typed_rest);
+            let ty = set_outer_type_annotation(inferred_type, ann);
+
+            Ok(Expr::ELet {
+                ann: ty,
+                var: var.to_string(),
+                expr: Box::new(typed_expr),
+                rest: Box::new(typed_rest),
+            })
+        }
         Expr::EIf {
             ann,
             pred_expr,

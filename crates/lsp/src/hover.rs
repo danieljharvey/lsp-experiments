@@ -106,6 +106,20 @@ pub fn find_most_specific_type<'a>(
                 None
             }
         }
+        Expr::ELet {
+            ann, expr, rest, ..
+        } => {
+            if annotation_matches(get_outer_type_annotation(ann), line, character) {
+                // the whole thing matches
+                // maybe we can do better though
+                find_most_specific_type(expr, line, character)
+                    .or(find_most_specific_type(rest, line, character))
+                    .or(Some(expr))
+            } else {
+                None
+            }
+        }
+
         Expr::EIdent { ann, .. } => {
             if annotation_matches(get_outer_type_annotation(ann), line, character) {
                 Some(expr)

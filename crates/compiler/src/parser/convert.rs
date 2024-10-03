@@ -25,6 +25,17 @@ pub fn to_real_expr(parse_expr: ParseExpr) -> Result<Expr<StaticAnnotation>, Par
             ann: to_real_ann(ann),
             prim,
         }),
+        ParseExpr::Let {
+            ann,
+            var,
+            expr,
+            rest,
+        } => Ok(Expr::ELet {
+            ann: to_real_ann(ann),
+            var,
+            expr: Box::new(to_real_expr(*expr)?),
+            rest: Box::new(to_real_expr(*rest)?),
+        }),
         ParseExpr::If {
             ann,
             pred_expr,

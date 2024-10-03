@@ -7,6 +7,14 @@ fn void_expr<Ann>(expr: Expr<Ann>) -> Expr<()> {
     match expr {
         Expr::EPrim { prim, .. } => Expr::EPrim { ann: (), prim },
         Expr::EIdent { var, .. } => Expr::EIdent { ann: (), var },
+        Expr::ELet {
+            var, expr, rest, ..
+        } => Expr::ELet {
+            ann: (),
+            var,
+            expr: Box::new(void_expr(*expr)),
+            rest: Box::new(void_expr(*rest)),
+        },
         Expr::EIf {
             pred_expr,
             then_expr,
@@ -99,6 +107,18 @@ fn test_parse() {
                 expr: Box::new(int((), 1)),
             },
         ),
+        (
+            "let a = True; a",
+            Expr::ELet {
+                ann: (),
+                var: "a".to_string(),
+                expr: Box::new(bool((), true)),
+                rest: Box::new(Expr::EIdent {
+                    ann: (),
+                    var: "a".to_string(),
+                }),
+            },
+        ),
     ];
 
     for (input, expect) in tests {
@@ -120,6 +140,7 @@ fn test_typecheck_success() {
         ("if True then (1: Int64) else 2", "Int64"),
         ("(if True then 1 else 2 : Int64)", "Int64"),
         ("(dog: Int64)", "Int64"),
+        //        ("let a = True; a", "Boolean"),
     ];
 
     for (input, expected) in tests {

@@ -61,6 +61,12 @@ pub enum ParseExpr<'a> {
         then_expr: Box<ParseExpr<'a>>,
         else_expr: Box<ParseExpr<'a>>,
     },
+    Let {
+        ann: ParseAnnotation<'a>,
+        var: String,
+        expr: Box<ParseExpr<'a>>,
+        rest: Box<ParseExpr<'a>>,
+    },
     Ann {
         ann: ParseAnnotation<'a>,
         ty: Option<ParseType<'a>>,

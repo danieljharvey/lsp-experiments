@@ -1,2 +1,4 @@
-if True
-  then (2: Int64) else 4
+let a = True;
+let sdfdf = (123: Int64);
+let b = False;
+(a:Int64)

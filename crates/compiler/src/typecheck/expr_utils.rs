@@ -19,6 +19,7 @@ pub fn get_outer_expr_annotation<Ann>(expr: &Expr<Ann>) -> &Ann {
     match expr {
         Expr::EPrim { ann, .. } => ann,
         Expr::EIf { ann, .. } => ann,
+        Expr::ELet { ann, .. } => ann,
         Expr::EIdent { ann, .. } => ann,
         Expr::EAnn { ann, .. } => ann,
     }
@@ -34,6 +35,15 @@ pub fn set_outer_expr_annotation<Ann: Clone>(expr: &Expr<Ann>, new_ann: &Ann) ->
             var: var.clone(),
             ann: new_ann.clone(),
         },
+        Expr::ELet {
+            var, expr, rest, ..
+        } => Expr::ELet {
+            var: var.clone(),
+            ann: new_ann.clone(),
+            expr: expr.clone(),
+            rest: rest.clone(),
+        },
+
         Expr::EIf {
             pred_expr,
             then_expr,
