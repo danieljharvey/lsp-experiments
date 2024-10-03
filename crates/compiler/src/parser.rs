@@ -5,9 +5,9 @@ use std::ops::Range;
 
 use crate::types::{Expr, Prim, Type, TypePrim};
 use nom::branch::alt;
-use nom::bytes::complete::{take, take_till1, take_while};
+use nom::bytes::complete::{take, take_till1};
 use nom::character::complete::{anychar, multispace0};
-use nom::combinator::{all_consuming, map, not, recognize, rest, verify};
+use nom::combinator::{all_consuming, map, not, rest};
 use nom::sequence::{preceded, terminated};
 use nom::{
     bytes::complete::{tag, take_while_m_n},
@@ -42,20 +42,16 @@ impl<'a> ToRange for LocatedSpan<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Error<Span> {
-    pub annotation: Annotation<Span>,
+pub struct ParseError {
+    pub range: Range<usize>,
     pub message: String,
 }
 
-pub type ParseError<'a> = Error<LocatedSpan<'a>>;
-
-pub type StaticParseError<'a> = Error<nom_locate::LocatedSpan<&'a str, ()>>;
-
 #[derive(Clone, Debug)]
-pub struct State<'a>(&'a RefCell<Vec<ParseError<'a>>>);
+pub struct State<'a>(&'a RefCell<Vec<ParseError>>);
 
 impl<'a> State<'a> {
-    pub fn report_error(&self, error: ParseError<'a>) {
+    pub fn report_error(&self, error: ParseError) {
         self.0.borrow_mut().push(error);
     }
 }
@@ -88,11 +84,8 @@ where
         Ok((remaining, out)) => Ok((remaining, Some(out))),
         Err(nom::Err::Error(nom::error::Error { input, .. }))
         | Err(nom::Err::Failure(nom::error::Error { input, .. })) => {
-            let err = Error {
-                annotation: Annotation {
-                    start: input.clone(),
-                    end: input.clone(),
-                },
+            let err = ParseError {
+                range: input.to_range(),
                 message: error_msg.to_string(),
             };
             input.extra.report_error(err);
@@ -103,14 +96,7 @@ where
 }
 
 #[derive(Debug)]
-pub struct Ident(String);
-
-#[derive(Debug)]
 pub enum ParseExpr<'a> {
-    Ident {
-        ann: ParseAnnotation<'a>,
-        ident: Ident,
-    },
     Prim {
         ann: ParseAnnotation<'a>,
         prim: Prim,
@@ -137,6 +123,7 @@ pub enum ParseType<'a> {
     },
 }
 
+/*
 fn ident(input: LocatedSpan) -> IResult<ParseExpr> {
     let first = verify(anychar, |c| c.is_ascii_alphabetic() || *c == '_');
     let rest = take_while(|c: char| c.is_ascii_alphanumeric() || "_-'".contains(c));
@@ -148,6 +135,7 @@ fn ident(input: LocatedSpan) -> IResult<ParseExpr> {
         }
     })(input)
 }
+*/
 
 // Need to add more types as we need them pls
 fn parse_type_prim(input: LocatedSpan) -> IResult<TypePrim> {
@@ -216,11 +204,8 @@ fn parse_if_internal(input: LocatedSpan) -> IResult<ParsedIf> {
 
 fn error(input: LocatedSpan) -> IResult<ParseExpr> {
     map(take_till1(|c| c == ')'), |span: LocatedSpan| {
-        let err = Error {
-            annotation: Annotation {
-                start: span.clone(),
-                end: span.clone(),
-            },
+        let err = ParseError {
+            range: span.to_range(),
             message: format!("unexpected `{}`", span.fragment()),
         };
         span.extra.report_error(err);
@@ -230,7 +215,7 @@ fn error(input: LocatedSpan) -> IResult<ParseExpr> {
 
 // our main Expr parser, basically, try all the parsers
 fn expr(input: LocatedSpan) -> IResult<ParseExpr> {
-    alt((ann, prim, iff, ident, error))(input)
+    alt((ann, prim, iff, error))(input)
 }
 
 // parse a whole source file
@@ -240,13 +225,13 @@ fn source_file(input: LocatedSpan) -> IResult<ParseExpr> {
 }
 
 pub fn parse<'a, 'state>(
-    errors: &'state RefCell<Vec<ParseError<'a>>>,
+    errors: &'state RefCell<Vec<ParseError>>,
     source: &'a str,
-) -> (ParseExpr<'a>, Vec<ParseError<'a>>)
+) -> (ParseExpr<'a>, Vec<ParseError>)
 where
     'state: 'a,
 {
-    let input = LocatedSpan::new_extra(source, State(&errors));
+    let input = LocatedSpan::new_extra(source, State(errors));
     let (_, expr) = all_consuming(source_file)(input).expect("parser cannot fail");
     let copied_errors = errors.clone().into_inner().clone();
 
@@ -254,9 +239,9 @@ where
 }
 
 pub fn parse_type<'a, 'state>(
-    errors: &'state RefCell<Vec<ParseError<'a>>>,
+    errors: &'state RefCell<Vec<ParseError>>,
     source: &'a str,
-) -> (ParseType<'a>, Vec<ParseError<'a>>)
+) -> (ParseType<'a>, Vec<ParseError>)
 where
     'state: 'a,
 {
@@ -348,7 +333,6 @@ fn ann(input: LocatedSpan) -> IResult<ParseExpr> {
 #[derive(Debug, PartialEq)]
 pub enum ParseConvertError {
     FoundError,
-    FoundIdent,
     MissingTypeAnnotation,
 }
 
@@ -365,7 +349,6 @@ pub fn to_real_expr(parse_expr: ParseExpr) -> Result<Expr<StaticAnnotation>, Par
             ann: to_real_ann(ann),
             prim,
         }),
-        ParseExpr::Ident { .. } => Err(ParseConvertError::FoundIdent),
         ParseExpr::If {
             ann,
             pred_expr,
@@ -398,12 +381,5 @@ fn to_real_ann(ann: ParseAnnotation) -> StaticAnnotation {
     Annotation {
         start: ann.start.map_extra(|_| ()),
         end: ann.end.map_extra(|_| ()),
-    }
-}
-
-pub fn to_real_error(error: ParseError) -> StaticParseError {
-    Error {
-        annotation: to_real_ann(error.annotation),
-        message: error.message,
     }
 }

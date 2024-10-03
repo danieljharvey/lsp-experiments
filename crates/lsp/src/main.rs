@@ -129,7 +129,7 @@ impl LanguageServer for Backend {
 }
 
 enum CompileError<'a> {
-    ParseError(Vec<frame::parser::StaticParseError<'a>>),
+    ParseError(Vec<frame::parser::ParseError>),
     TypeError(Box<TypeError<StaticAnnotation<'a>>>),
 }
 
@@ -139,7 +139,7 @@ struct CompileResult<'a> {
 }
 
 fn compile<'a, 'state>(
-    ref_cell: &'state RefCell<Vec<frame::parser::ParseError<'a>>>,
+    ref_cell: &'state RefCell<Vec<frame::parser::ParseError>>,
     input: &'a str,
 ) -> CompileResult<'a>
 where
@@ -147,10 +147,6 @@ where
 {
     let (parse_result, errors) = frame::parser::parse(ref_cell, input);
     let result = frame::parser::to_real_expr(parse_result);
-    let static_errs = errors
-        .into_iter()
-        .map(|err| frame::parser::to_real_error(err))
-        .collect();
 
     match result {
         Ok(input_expr) => {
@@ -166,7 +162,7 @@ where
             }
         }
         Err(_) => CompileResult {
-            expr_result: Err(CompileError::ParseError(static_errs)),
+            expr_result: Err(CompileError::ParseError(errors)),
             type_warnings: vec![],
         },
     }
