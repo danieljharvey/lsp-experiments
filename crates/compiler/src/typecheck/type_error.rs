@@ -1,4 +1,4 @@
-use crate::parser::StaticAnnotation;
+use crate::parser::Annotation;
 use crate::typecheck::get_outer_type_annotation;
 use crate::types::{Prim, Type, TypePrim};
 use std::ops::Range;
@@ -23,13 +23,11 @@ pub enum TypeError<Ann> {
     },
 }
 
-fn range_from_annotation(ann: &StaticAnnotation) -> Range<usize> {
-    ann.start.location_offset()..ann.end.location_offset()
+fn range_from_annotation(ann: &Annotation) -> Range<usize> {
+    ann.start.offset..ann.end.offset
 }
 
-pub fn to_report<'a>(
-    type_error: &'a TypeError<StaticAnnotation>,
-) -> ariadne::Report<'a, Range<usize>> {
+pub fn to_report(type_error: &TypeError<Annotation>) -> ariadne::Report<Range<usize>> {
     use ariadne::{Label, Report, ReportKind};
 
     match type_error {

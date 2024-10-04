@@ -1,0 +1,5 @@
+---
+source: crates/compiler/tests/tests.rs
+expression: parse_result
+---
+Error

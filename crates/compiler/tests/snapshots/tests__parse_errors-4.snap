@@ -1,0 +1,21 @@
+---
+source: crates/compiler/tests/tests.rs
+expression: parse_errors
+---
+[
+    ParseError {
+        ann: Annotation {
+            start: Position {
+                offset: 19,
+                row: 1,
+                column: 20,
+            },
+            end: Position {
+                offset: 19,
+                row: 1,
+                column: 20,
+            },
+        },
+        message: "expected expression after 'else'",
+    },
+]

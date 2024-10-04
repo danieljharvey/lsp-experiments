@@ -1,0 +1,53 @@
+---
+source: crates/compiler/tests/tests.rs
+expression: parse_result
+---
+If {
+    ann: Annotation {
+        start: Position {
+            offset: 0,
+            row: 1,
+            column: 1,
+        },
+        end: Position {
+            offset: 19,
+            row: 1,
+            column: 20,
+        },
+    },
+    pred_expr: Prim {
+        ann: Annotation {
+            start: Position {
+                offset: 3,
+                row: 1,
+                column: 4,
+            },
+            end: Position {
+                offset: 7,
+                row: 1,
+                column: 8,
+            },
+        },
+        prim: Boolean(
+            true,
+        ),
+    },
+    then_expr: Prim {
+        ann: Annotation {
+            start: Position {
+                offset: 13,
+                row: 1,
+                column: 14,
+            },
+            end: Position {
+                offset: 14,
+                row: 1,
+                column: 15,
+            },
+        },
+        prim: IntLit(
+            1,
+        ),
+    },
+    else_expr: Error,
+}

@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::ops::Range;
 
 use crate::types::{Prim, TypePrim};
 
@@ -8,31 +7,52 @@ pub type IResult<'a, T> = nom::IResult<LocatedSpan<'a>, T>;
 pub type LocatedSpan<'a> = nom_locate::LocatedSpan<&'a str, State<'a>>;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Annotation<Span> {
-    pub start: Span,
-    pub end: Span,
+pub struct Position {
+    pub offset: usize,
+    pub row: u32,
+    pub column: usize,
 }
 
-pub type ParseAnnotation<'a> = Annotation<LocatedSpan<'a>>;
+#[derive(Debug, Clone, PartialEq)]
+pub struct Annotation {
+    pub start: Position,
+    pub end: Position,
+}
 
-pub type StaticAnnotation<'a> = Annotation<nom_locate::LocatedSpan<&'a str, ()>>;
-
-pub trait ToRange {
-    fn to_range(&self) -> Range<usize>;
+pub trait ToAnnotation {
+    fn to_annotation(&self) -> Annotation;
 }
 
 // this suggests we're using LocatedSpan wrong
-impl<'a> ToRange for LocatedSpan<'a> {
-    fn to_range(&self) -> Range<usize> {
-        let start = self.location_offset();
-        let end = start + self.fragment().len();
-        start..end
+impl<'a> ToAnnotation for LocatedSpan<'a> {
+    fn to_annotation(&self) -> Annotation {
+        let start_column = self.get_utf8_column();
+        let start_row = self.location_line();
+
+        let fragment_length = self.fragment().len();
+
+        let end_column = start_column + fragment_length;
+
+        let start_offset = self.location_offset();
+
+        Annotation {
+            start: Position {
+                offset: start_offset,
+                row: start_row,
+                column: start_column,
+            },
+            end: Position {
+                offset: start_offset + fragment_length,
+                row: start_row,
+                column: end_column,
+            },
+        }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct ParseError {
-    pub range: Range<usize>,
+    pub ann: Annotation,
     pub message: String,
 }
 
@@ -46,39 +66,39 @@ impl<'a> State<'a> {
 }
 
 #[derive(Debug)]
-pub enum ParseExpr<'a> {
+pub enum ParseExpr {
     Ident {
-        ann: ParseAnnotation<'a>,
+        ann: Annotation,
         var: String,
     },
     Prim {
-        ann: ParseAnnotation<'a>,
+        ann: Annotation,
         prim: Prim,
     },
     If {
-        ann: ParseAnnotation<'a>,
-        pred_expr: Box<ParseExpr<'a>>,
-        then_expr: Box<ParseExpr<'a>>,
-        else_expr: Box<ParseExpr<'a>>,
+        ann: Annotation,
+        pred_expr: Box<ParseExpr>,
+        then_expr: Box<ParseExpr>,
+        else_expr: Box<ParseExpr>,
     },
     Let {
-        ann: ParseAnnotation<'a>,
-        var: String,
-        expr: Box<ParseExpr<'a>>,
-        rest: Box<ParseExpr<'a>>,
+        ann: Annotation,
+        var: Option<String>,
+        expr: Box<ParseExpr>,
+        rest: Box<ParseExpr>,
     },
     Ann {
-        ann: ParseAnnotation<'a>,
-        ty: Option<ParseType<'a>>,
-        expr: Box<ParseExpr<'a>>,
+        ann: Annotation,
+        ty: Option<ParseType>,
+        expr: Box<ParseExpr>,
     },
     Error,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ParseType<'a> {
+pub enum ParseType {
     Prim {
-        ann: ParseAnnotation<'a>,
+        ann: Annotation,
         type_prim: TypePrim,
     },
 }

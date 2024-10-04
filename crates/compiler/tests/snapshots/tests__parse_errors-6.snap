@@ -1,0 +1,21 @@
+---
+source: crates/compiler/tests/tests.rs
+expression: parse_errors
+---
+[
+    ParseError {
+        ann: Annotation {
+            start: Position {
+                offset: 3,
+                row: 1,
+                column: 4,
+            },
+            end: Position {
+                offset: 5,
+                row: 1,
+                column: 6,
+            },
+        },
+        message: "expected EOF",
+    },
+]

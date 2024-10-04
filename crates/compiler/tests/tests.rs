@@ -1,7 +1,6 @@
 use frame::parser::constructors::{bool, int, mk_if};
 use frame::typecheck::TypeError;
 use frame::types::{Expr, Prim, Type, TypePrim};
-use std::cell::RefCell;
 
 fn void_expr<Ann>(expr: Expr<Ann>) -> Expr<()> {
     match expr {
@@ -122,12 +121,21 @@ fn test_parse() {
     ];
 
     for (input, expect) in tests {
-        let ref_cell = RefCell::new(vec![]);
-        let (parse_result, _) = frame::parser::parse(&ref_cell, input);
+        let (parse_result, _parse_errors) = frame::parser::parse(input);
         let result = frame::parser::to_real_expr(parse_result);
-        dbg!(&result);
         let voided_result = result.map(void_expr);
         assert_eq!(voided_result, Ok(expect))
+    }
+}
+
+#[test]
+fn test_parse_errors() {
+    let tests = vec!["let False = True; a", "if True then 1 else", "dog 1"];
+
+    for input in tests {
+        let (parse_result, parse_errors) = frame::parser::parse(input);
+        insta::assert_debug_snapshot!(parse_result);
+        insta::assert_debug_snapshot!(parse_errors);
     }
 }
 
@@ -144,11 +152,10 @@ fn test_typecheck_success() {
     ];
 
     for (input, expected) in tests {
-        let ref_cell = RefCell::new(vec![]);
-        let (parse_result, _) = frame::parser::parse(&ref_cell, input);
+        let (parse_result, _) = frame::parser::parse(input);
         let input_expr = frame::parser::to_real_expr(parse_result).expect("parsing expr");
 
-        let (expected_parse_type, _) = frame::parser::parse_type(&ref_cell, expected);
+        let (expected_parse_type, _) = frame::parser::parse_type(expected);
         let expected_type =
             frame::parser::to_real_ty(Some(expected_parse_type)).expect("parsing type");
 
@@ -204,8 +211,7 @@ fn test_typecheck_failure() {
     ];
 
     for (input, expected_type_error) in tests {
-        let ref_cell = RefCell::new(vec![]);
-        let (parse_result, _) = frame::parser::parse(&ref_cell, input);
+        let (parse_result, _) = frame::parser::parse(input);
         let input_expr = frame::parser::to_real_expr(parse_result).expect("parsing expr");
 
         let result = frame::typecheck::infer(&input_expr, &mut vec![]);

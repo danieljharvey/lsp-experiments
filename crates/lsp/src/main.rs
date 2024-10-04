@@ -2,11 +2,10 @@ mod diagnostic;
 mod hover;
 use dashmap::DashMap;
 use frame::{
-    parser::StaticAnnotation,
+    parser::Annotation,
     typecheck::{TypeError, Warning},
     types::{Expr, Type},
 };
-use std::cell::RefCell;
 use std::sync::Arc;
 use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::*;
@@ -62,12 +61,10 @@ impl LanguageServer for Backend {
 
         self.update_text(new_input);
 
-        let ref_cell = RefCell::new(vec![]);
-
         self.client
             .publish_diagnostics(
                 params.text_document.uri,
-                diagnostic::get_diagnostics(compile(&ref_cell, new_input))
+                diagnostic::get_diagnostics(compile(new_input))
                     .iter()
                     .map(diagnostic::to_diagnostic)
                     .collect(),
@@ -79,12 +76,11 @@ impl LanguageServer for Backend {
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         if let Some(new_input) = &params.content_changes.first() {
             self.update_text(&new_input.text);
-            let ref_cell = RefCell::new(vec![]);
 
             self.client
                 .publish_diagnostics(
                     params.text_document.uri,
-                    diagnostic::get_diagnostics(compile(&ref_cell, &new_input.text))
+                    diagnostic::get_diagnostics(compile(&new_input.text))
                         .iter()
                         .map(diagnostic::to_diagnostic)
                         .collect(),
@@ -105,8 +101,7 @@ impl LanguageServer for Backend {
                 )
                 .await;
 
-            let ref_cell = RefCell::new(vec![]);
-            match compile(&ref_cell, &input) {
+            match compile(&input) {
                 CompileResult {
                     expr_result: Ok(expr),
                     type_warnings: _,
@@ -128,24 +123,18 @@ impl LanguageServer for Backend {
     }
 }
 
-enum CompileError<'a> {
+enum CompileError {
     ParseError(Vec<frame::parser::ParseError>),
-    TypeError(Box<TypeError<StaticAnnotation<'a>>>),
+    TypeError(Box<TypeError<Annotation>>),
 }
 
-struct CompileResult<'a> {
-    pub expr_result: Result<Expr<Type<StaticAnnotation<'a>>>, CompileError<'a>>,
-    pub type_warnings: Vec<Warning<StaticAnnotation<'a>>>,
+struct CompileResult {
+    pub expr_result: Result<Expr<Type<Annotation>>, CompileError>,
+    pub type_warnings: Vec<Warning<Annotation>>,
 }
 
-fn compile<'a, 'state>(
-    ref_cell: &'state RefCell<Vec<frame::parser::ParseError>>,
-    input: &'a str,
-) -> CompileResult<'a>
-where
-    'state: 'a,
-{
-    let (parse_result, errors) = frame::parser::parse(ref_cell, input);
+fn compile(input: &str) -> CompileResult {
+    let (parse_result, errors) = frame::parser::parse(input);
     let result = frame::parser::to_real_expr(parse_result);
 
     match result {

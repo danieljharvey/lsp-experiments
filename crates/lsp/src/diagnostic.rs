@@ -1,48 +1,24 @@
 use super::CompileResult;
 use crate::CompileError;
 use frame::{
-    parser::StaticAnnotation,
+    parser::Annotation,
     typecheck::{get_outer_type_annotation, TypeError, Warning},
 };
 use tower_lsp::lsp_types::*;
 
-pub enum Diag<'a> {
-    ParseError {
-        message: String,
-        range: std::ops::Range<usize>,
-    },
+pub enum Diag {
     Error {
         message: String,
-        annotation: StaticAnnotation<'a>,
+        annotation: Annotation,
     },
     Warning {
         message: String,
-        annotation: StaticAnnotation<'a>,
+        annotation: Annotation,
     },
 }
 
 pub fn to_diagnostic(diag: &Diag) -> Diagnostic {
     match diag {
-        Diag::ParseError { message, range } => Diagnostic {
-            code: None,
-            code_description: None,
-            data: None,
-            message: message.to_string(),
-            range: Range {
-                start: Position {
-                    character: u32::try_from(range.start).unwrap(),
-                    line: 0,
-                },
-                end: Position {
-                    character: u32::try_from(range.end).unwrap(),
-                    line: 0,
-                },
-            },
-            related_information: None,
-            severity: Some(DiagnosticSeverity::ERROR),
-            source: None,
-            tags: None,
-        },
         Diag::Error {
             message,
             annotation,
@@ -86,7 +62,10 @@ pub fn get_diagnostics(
         Ok(_) => vec![],
         Err(CompileError::ParseError(warnings)) => warnings
             .into_iter()
-            .map(|frame::parser::ParseError { range, message }| Diag::ParseError { message, range })
+            .map(|frame::parser::ParseError { ann, message }| Diag::Error {
+                message,
+                annotation: ann,
+            })
             .collect(),
 
         Err(CompileError::TypeError(type_error)) => match *type_error {

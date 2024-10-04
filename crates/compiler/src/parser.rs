@@ -5,8 +5,8 @@ mod types;
 pub use convert::{to_real_expr, to_real_ty};
 use std::cell::RefCell;
 pub use types::{
-    Annotation, IResult, LocatedSpan, ParseAnnotation, ParseError, ParseExpr, ParseType, State,
-    StaticAnnotation, ToRange,
+    Annotation, IResult, LocatedSpan, ParseError, ParseExpr, ParseType, Position, State,
+    ToAnnotation,
 };
 
 use crate::types::{Prim, TypePrim};
@@ -24,7 +24,7 @@ use nom::{
 // location
 pub fn with_annotation<'a, F, T>(
     mut inner: F,
-) -> impl FnMut(LocatedSpan<'a>) -> IResult<(ParseAnnotation<'a>, T)>
+) -> impl FnMut(LocatedSpan<'a>) -> IResult<(Annotation, T)>
 where
     F: FnMut(LocatedSpan<'a>) -> IResult<T>,
 {
@@ -32,7 +32,20 @@ where
         let (input, start) = nom_locate::position(input)?;
         let (input, result) = inner(input)?;
         let (input, end) = nom_locate::position(input)?;
-        Ok((input, (Annotation { start, end }, result)))
+
+        let ann = Annotation {
+            start: Position {
+                offset: start.location_offset(),
+                row: start.location_line(),
+                column: start.get_utf8_column(),
+            },
+            end: Position {
+                offset: end.location_offset(),
+                row: end.location_line(),
+                column: end.get_utf8_column(),
+            },
+        };
+        Ok((input, (ann, result)))
     }
 }
 
@@ -49,7 +62,7 @@ where
         Err(nom::Err::Error(nom::error::Error { input, .. }))
         | Err(nom::Err::Failure(nom::error::Error { input, .. })) => {
             let err = ParseError {
-                range: input.to_range(),
+                ann: input.to_annotation(),
                 message: error_msg.to_string(),
             };
             input.extra.report_error(err);
@@ -66,7 +79,7 @@ fn ident_inner(input: LocatedSpan) -> IResult<String> {
     map_opt(ident, |span: LocatedSpan| {
         let str = span.fragment().to_string();
 
-        let protected: [&str; 4] = ["if", "then", "else", "let"];
+        let protected: [&str; 6] = ["if", "then", "else", "let", "True", "False"];
 
         if protected.contains(&str.as_str()) {
             None
@@ -78,7 +91,7 @@ fn ident_inner(input: LocatedSpan) -> IResult<String> {
 
 fn ident(input: LocatedSpan) -> IResult<ParseExpr> {
     let parser = ws(with_annotation(ident_inner));
-    map(parser, |(ann, var): (ParseAnnotation, String)| {
+    map(parser, |(ann, var): (Annotation, String)| {
         ParseExpr::Ident { ann, var }
     })(input)
 }
@@ -122,20 +135,20 @@ fn iff(input: LocatedSpan) -> IResult<ParseExpr> {
     ))
 }
 
-struct ParsedIf<'a> {
-    pred_expr: ParseExpr<'a>,
-    then_expr: ParseExpr<'a>,
-    else_expr: ParseExpr<'a>,
+struct ParsedIf {
+    pred_expr: ParseExpr,
+    then_expr: ParseExpr,
+    else_expr: ParseExpr,
 }
 
 fn parse_if_internal(input: LocatedSpan) -> IResult<ParsedIf> {
     let (input, _) = ws(tag("if"))(input)?;
     let (input, pred_expr) = expect(expr, "expected expression after 'if'")(input)?;
 
-    let (input, _) = ws(tag("then"))(input)?;
+    let (input, _) = expect(ws(tag("then")), "expected 'then'")(input)?;
     let (input, then_expr) = expect(expr, "expected expression after 'then'")(input)?;
 
-    let (input, _) = ws(tag("else"))(input)?;
+    let (input, _) = expect(ws(tag("else")), "expected 'else'")(input)?;
     let (input, else_expr) = expect(expr, "expected expression after 'else'")(input)?;
 
     Ok((
@@ -148,11 +161,13 @@ fn parse_if_internal(input: LocatedSpan) -> IResult<ParsedIf> {
     ))
 }
 
-fn let_internal(input: LocatedSpan) -> IResult<(String, Option<ParseExpr>, Option<ParseExpr>)> {
+fn let_internal(
+    input: LocatedSpan,
+) -> IResult<(Option<String>, Option<ParseExpr>, Option<ParseExpr>)> {
     let (input, _) = ws(tag("let"))(input)?;
-    let (input, ident) = ws(ident_inner)(input)?;
+    let (input, ident) = expect(ws(ident_inner), "expected identifier")(input)?;
 
-    let (input, _) = ws(tag("="))(input)?;
+    let (input, _) = expect(ws(tag("=")), "expected '='")(input)?;
     let (input, exp) = expect(expr, "expected expression after '='")(input)?;
 
     let (input, _) = ws(tag(";"))(input)?;
@@ -178,7 +193,7 @@ fn lett(input: LocatedSpan) -> IResult<ParseExpr> {
 fn error(input: LocatedSpan) -> IResult<ParseExpr> {
     map(take_till1(|c| c == ')'), |span: LocatedSpan| {
         let err = ParseError {
-            range: span.to_range(),
+            ann: span.to_annotation(),
             message: format!("unexpected `{}`", span.fragment()),
         };
         span.extra.report_error(err);
@@ -197,36 +212,31 @@ fn source_file(input: LocatedSpan) -> IResult<ParseExpr> {
     terminated(expr, preceded(expect(not(anychar), "expected EOF"), rest))(input)
 }
 
-pub fn parse<'a, 'state>(
-    errors: &'state RefCell<Vec<ParseError>>,
-    source: &'a str,
-) -> (ParseExpr<'a>, Vec<ParseError>)
+pub fn parse<'a, 'state>(source: &'a str) -> (ParseExpr, Vec<ParseError>)
 where
     'state: 'a,
 {
-    let input = LocatedSpan::new_extra(source, State(errors));
+    let errors = RefCell::new(vec![]);
+    let input = LocatedSpan::new_extra(source, State(&errors));
     let (_, expr) = all_consuming(source_file)(input).expect("parser cannot fail");
     let copied_errors = errors.clone().into_inner().clone();
 
     (expr, copied_errors)
 }
 
-pub fn parse_type<'a, 'state>(
-    errors: &'state RefCell<Vec<ParseError>>,
-    source: &'a str,
-) -> (ParseType<'a>, Vec<ParseError>)
+pub fn parse_type<'a, 'state>(source: &'a str) -> (ParseType, Vec<ParseError>)
 where
     'state: 'a,
 {
-    let input = LocatedSpan::new_extra(source, State(errors));
+    let errors = RefCell::new(vec![]);
+    let input = LocatedSpan::new_extra(source, State(&errors));
     let (_, ty) = all_consuming(ty)(input).expect("parser cannot fail");
     (ty, errors.clone().into_inner())
 }
 
 pub fn main() {
     for input in &["foo", "(foo)", "(foo))", "(%", "(", "%", "()", ""] {
-        let errors = RefCell::new(Vec::new());
-        println!("{:7} {:?}", input, parse(&errors, input));
+        println!("{:7} {:?}", input, parse(input));
     }
 }
 
