@@ -5,6 +5,9 @@ watch:
       -s 'cargo install --path ./crates/lsp' \
       -s 'cargo install --path ./crates/compiler'
 
+run-watch:
+    watchexec -e .frame 'clear && frame --file-path ./static/test.frame'
+
 format:
     cargo fmt --all
 

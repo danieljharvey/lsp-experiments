@@ -1,79 +1,29 @@
+mod combinators;
+
+mod primitives;
+use primitives::{parse_type_prim, prim};
 pub mod constructors;
+
 mod convert;
 mod parse_error;
 mod types;
-
+use combinators::{expect, with_annotation, ws};
 pub use convert::{parse_block_to_expr, to_real_expr, to_real_ty};
+use nom::branch::alt;
+use nom::bytes::complete::{take, take_till1};
+use nom::character::complete::anychar;
+use nom::combinator::{all_consuming, map, map_opt, not, opt, recognize, rest, verify};
+use nom::sequence::{preceded, terminated};
+use nom::{
+    bytes::complete::{tag, take_while},
+    multi::separated_list1,
+};
 pub use parse_error::to_report;
 use std::cell::RefCell;
 pub use types::{
     Annotation, IResult, LocatedSpan, ParseBlock, ParseError, ParseExpr, ParseType, Position,
     State, ToAnnotation,
 };
-
-use crate::types::{Prim, TypePrim};
-use nom::branch::alt;
-use nom::bytes::complete::{take, take_till1};
-use nom::character::complete::{anychar, multispace0};
-use nom::combinator::{all_consuming, map, map_opt, not, opt, recognize, rest, verify};
-use nom::sequence::{preceded, terminated};
-use nom::{
-    bytes::complete::{tag, take_while, take_while_m_n},
-    combinator::map_res,
-    multi::separated_list1,
-};
-
-// given a parser, return a parser that returns the result and an Annotation describing the source
-// location
-pub fn with_annotation<'a, F, T>(
-    mut inner: F,
-) -> impl FnMut(LocatedSpan<'a>) -> IResult<(Annotation, T)>
-where
-    F: FnMut(LocatedSpan<'a>) -> IResult<T>,
-{
-    move |input: LocatedSpan| {
-        let (input, start) = nom_locate::position(input)?;
-        let (input, result) = inner(input)?;
-        let (input, end) = nom_locate::position(input)?;
-
-        let ann = Annotation {
-            start: Position {
-                offset: start.location_offset(),
-                row: start.location_line(),
-                column: start.get_utf8_column(),
-            },
-            end: Position {
-                offset: end.location_offset(),
-                row: end.location_line(),
-                column: end.get_utf8_column(),
-            },
-        };
-        Ok((input, (ann, result)))
-    }
-}
-
-fn expect<'a, F, E, T>(
-    mut parser: F,
-    error_msg: E,
-) -> impl FnMut(LocatedSpan<'a>) -> IResult<Option<T>>
-where
-    F: FnMut(LocatedSpan<'a>) -> IResult<T>,
-    E: ToString,
-{
-    move |input| match parser(input) {
-        Ok((remaining, out)) => Ok((remaining, Some(out))),
-        Err(nom::Err::Error(nom::error::Error { input, .. }))
-        | Err(nom::Err::Failure(nom::error::Error { input, .. })) => {
-            let err = ParseError {
-                ann: input.to_annotation(),
-                message: error_msg.to_string(),
-            };
-            input.extra.report_error(err);
-            Ok((input, None))
-        }
-        Err(err) => Err(err),
-    }
-}
 
 fn ident_inner(input: LocatedSpan) -> IResult<String> {
     let first = verify(anychar, |c| c.is_ascii_alphabetic() || *c == '_');
@@ -97,16 +47,6 @@ fn ident(input: LocatedSpan) -> IResult<ParseExpr> {
     map(parser, |(ann, var): (Annotation, String)| {
         ParseExpr::Ident { ann, var }
     })(input)
-}
-
-// Need to add more types as we need them pls
-fn parse_type_prim(input: LocatedSpan) -> IResult<TypePrim> {
-    let boolean = map(tag("Boolean"), |_| TypePrim::TBoolean);
-    let int_8 = map(tag("Int8"), |_| TypePrim::TInt8);
-    let int_16 = map(tag("Int16 "), |_| TypePrim::TInt16);
-    let int_32 = map(tag("Int32"), |_| TypePrim::TInt32);
-    let int_64 = map(tag("Int64"), |_| TypePrim::TInt64);
-    ws(alt((boolean, int_8, int_16, int_32, int_64)))(input)
 }
 
 pub fn ty(input: LocatedSpan) -> IResult<ParseType> {
@@ -191,11 +131,15 @@ fn let_block_internal(input: LocatedSpan) -> IResult<(Option<String>, Option<Par
 }
 
 fn block(input: LocatedSpan) -> IResult<ParseBlock> {
+    // optional list of let bindings
     let (input, let_bindings) = opt(terminated(
         separated_list1(tag(";"), with_annotation(let_block_internal)),
         tag(";"),
     ))(input)?;
+
+    // expression
     let (input, exp) = expr(input)?;
+
     Ok((
         input,
         ParseBlock {
@@ -220,10 +164,7 @@ fn source_file(input: LocatedSpan) -> IResult<ParseBlock> {
             final_expr: ParseExpr::Error,
         }),
     ));
-    terminated(
-        parse_block,
-        preceded(expect(not(anychar), "expected EOF"), rest),
-    )(input)
+    terminated(parse_block, preceded(opt(not(anychar)), rest))(input)
 }
 
 pub fn parse<'a, 'state>(source: &'a str) -> (ParseBlock, Vec<ParseError>)
@@ -246,58 +187,6 @@ where
     let input = LocatedSpan::new_extra(source, State(&errors));
     let (_, ty) = all_consuming(ty)(input).expect("parser cannot fail");
     (ty, errors.clone().into_inner())
-}
-
-pub fn main() {
-    for input in &["foo", "(foo)", "(foo))", "(%", "(", "%", "()", ""] {
-        println!("{:7} {:?}", input, parse(input));
-    }
-}
-
-//////// prims
-
-fn is_int_digit(c: char) -> bool {
-    c.is_ascii_digit()
-}
-
-fn int_primary(input: LocatedSpan) -> IResult<u8> {
-    map_res(take_while_m_n(1, 12, is_int_digit), from_int)(input)
-}
-
-fn from_int(input: LocatedSpan) -> Result<u8, std::num::ParseIntError> {
-    input.parse::<u8>()
-}
-
-fn int(input: LocatedSpan) -> IResult<Prim> {
-    let (input, int_val) = int_primary(input)?;
-    Ok((input, Prim::IntLit(i64::from(int_val))))
-}
-
-fn parse_true(input: LocatedSpan) -> IResult<Prim> {
-    map(tag("True"), |_| Prim::Boolean(true))(input)
-}
-
-fn parse_false(input: LocatedSpan) -> IResult<Prim> {
-    map(tag("False"), |_| Prim::Boolean(false))(input)
-}
-
-fn bool(input: LocatedSpan) -> IResult<Prim> {
-    (alt((parse_true, parse_false)))(input)
-}
-
-fn prim(input: LocatedSpan) -> IResult<ParseExpr> {
-    map(ws(with_annotation(alt((bool, int)))), |(ann, prim)| {
-        ParseExpr::Prim { ann, prim }
-    })(input)
-}
-
-/// A combinator that takes a parser `inner` and produces a parser that also consumes both leading and
-/// trailing whitespace, returning the output of `inner`.
-pub fn ws<'a, F, T>(inner: F) -> impl FnMut(LocatedSpan<'a>) -> IResult<T>
-where
-    F: FnMut(LocatedSpan<'a>) -> IResult<T>,
-{
-    preceded(multispace0, inner)
 }
 
 fn parse_ann_internal(input: LocatedSpan) -> IResult<(Option<ParseType>, Option<ParseExpr>)> {
