@@ -1,4 +1,4 @@
-use super::types::{Annotation, ParseExpr, ParseType};
+use super::types::{Annotation, ParseBlock, ParseExpr, ParseType};
 
 use crate::types::{Expr, Type};
 
@@ -6,8 +6,21 @@ use crate::types::{Expr, Type};
 pub enum ParseConvertError {
     MissingIdent,
     FoundError,
-
     MissingTypeAnnotation,
+}
+
+pub fn parse_block_to_expr(parse_block: ParseBlock) -> Result<Expr<Annotation>, ParseConvertError> {
+    let mut final_expr = to_real_expr(parse_block.final_expr)?;
+    for (ann, ident, exp) in parse_block.let_bindings {
+        let inner_expr = exp.ok_or(ParseConvertError::FoundError)?;
+        final_expr = Expr::ELet {
+            ann,
+            var: ident.ok_or(ParseConvertError::MissingIdent)?,
+            expr: Box::new(to_real_expr(inner_expr)?),
+            rest: Box::new(final_expr.clone()),
+        };
+    }
+    Ok(final_expr)
 }
 
 // turn this into our 'real' expr that does not include `Error`
@@ -21,17 +34,6 @@ pub fn to_real_expr(parse_expr: ParseExpr) -> Result<Expr<Annotation>, ParseConv
         }),
         ParseExpr::Ident { ann, var } => Ok(Expr::EIdent { ann, var }),
         ParseExpr::Prim { ann, prim } => Ok(Expr::EPrim { ann, prim }),
-        ParseExpr::Let {
-            ann,
-            var,
-            expr,
-            rest,
-        } => Ok(Expr::ELet {
-            ann,
-            var: var.ok_or(ParseConvertError::MissingIdent)?,
-            expr: Box::new(to_real_expr(*expr)?),
-            rest: Box::new(to_real_expr(*rest)?),
-        }),
         ParseExpr::If {
             ann,
             pred_expr,

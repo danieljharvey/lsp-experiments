@@ -52,7 +52,7 @@ pub fn annotation_matches(ann: &Annotation, cursor_line: u32, cursor_col: u32) -
 #[test]
 fn test_matches() {
     let (parse_expr, _) = frame::parser::parse("if True then (1: Int64)\nelse 2");
-    let expr = frame::parser::to_real_expr(parse_expr).expect("parsing expr");
+    let expr = frame::parser::parse_block_to_expr(parse_expr).expect("parsing expr");
 
     let typed_expr = frame::typecheck::infer(&expr, &mut vec![]).unwrap();
 

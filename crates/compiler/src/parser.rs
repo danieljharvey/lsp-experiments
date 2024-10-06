@@ -1,23 +1,26 @@
 pub mod constructors;
 mod convert;
+mod parse_error;
 mod types;
 
-pub use convert::{to_real_expr, to_real_ty};
+pub use convert::{parse_block_to_expr, to_real_expr, to_real_ty};
+pub use parse_error::to_report;
 use std::cell::RefCell;
 pub use types::{
-    Annotation, IResult, LocatedSpan, ParseError, ParseExpr, ParseType, Position, State,
-    ToAnnotation,
+    Annotation, IResult, LocatedSpan, ParseBlock, ParseError, ParseExpr, ParseType, Position,
+    State, ToAnnotation,
 };
 
 use crate::types::{Prim, TypePrim};
 use nom::branch::alt;
 use nom::bytes::complete::{take, take_till1};
 use nom::character::complete::{anychar, multispace0};
-use nom::combinator::{all_consuming, map, map_opt, not, recognize, rest, verify};
+use nom::combinator::{all_consuming, map, map_opt, not, opt, recognize, rest, verify};
 use nom::sequence::{preceded, terminated};
 use nom::{
     bytes::complete::{tag, take_while, take_while_m_n},
     combinator::map_res,
+    multi::separated_list1,
 };
 
 // given a parser, return a parser that returns the result and an Annotation describing the source
@@ -161,35 +164,6 @@ fn parse_if_internal(input: LocatedSpan) -> IResult<ParsedIf> {
     ))
 }
 
-fn let_internal(
-    input: LocatedSpan,
-) -> IResult<(Option<String>, Option<ParseExpr>, Option<ParseExpr>)> {
-    let (input, _) = ws(tag("let"))(input)?;
-    let (input, ident) = expect(ws(ident_inner), "expected identifier")(input)?;
-
-    let (input, _) = expect(ws(tag("=")), "expected '='")(input)?;
-    let (input, exp) = expect(expr, "expected expression after '='")(input)?;
-
-    let (input, _) = ws(tag(";"))(input)?;
-    let (input, rest) = expect(expr, "expected next expression")(input)?;
-
-    Ok((input, (ident, exp, rest)))
-}
-
-fn lett(input: LocatedSpan) -> IResult<ParseExpr> {
-    let (input, (ann, (var, expr, rest))) = with_annotation(let_internal)(input)?;
-
-    Ok((
-        input,
-        ParseExpr::Let {
-            ann,
-            var,
-            expr: Box::new(expr.unwrap_or(ParseExpr::Error)),
-            rest: Box::new(rest.unwrap_or(ParseExpr::Error)),
-        },
-    ))
-}
-
 fn error(input: LocatedSpan) -> IResult<ParseExpr> {
     map(take_till1(|c| c == ')'), |span: LocatedSpan| {
         let err = ParseError {
@@ -203,16 +177,56 @@ fn error(input: LocatedSpan) -> IResult<ParseExpr> {
 
 // our main Expr parser, basically, try all the parsers
 fn expr(input: LocatedSpan) -> IResult<ParseExpr> {
-    alt((ann, lett, prim, iff, ident, error))(input)
+    alt((ann, prim, iff, ident, error))(input)
+}
+
+fn let_block_internal(input: LocatedSpan) -> IResult<(Option<String>, Option<ParseExpr>)> {
+    let (input, _) = ws(tag("let"))(input)?;
+    let (input, ident) = expect(ws(ident_inner), "expected identifier")(input)?;
+
+    let (input, _) = expect(ws(tag("=")), "expected '='")(input)?;
+    let (input, exp) = expect(expr, "expected expression after '='")(input)?;
+
+    Ok((input, (ident, exp)))
+}
+
+fn block(input: LocatedSpan) -> IResult<ParseBlock> {
+    let (input, let_bindings) = opt(terminated(
+        separated_list1(tag(";"), with_annotation(let_block_internal)),
+        tag(";"),
+    ))(input)?;
+    let (input, exp) = expr(input)?;
+    Ok((
+        input,
+        ParseBlock {
+            let_bindings: match let_bindings {
+                Some(bindings) => bindings
+                    .into_iter()
+                    .map(|(ann, (ident, expr_body))| (ann, ident, expr_body))
+                    .collect(),
+                None => vec![],
+            },
+            final_expr: exp,
+        },
+    ))
 }
 
 // parse a whole source file
-fn source_file(input: LocatedSpan) -> IResult<ParseExpr> {
-    let expr = alt((expr, map(take(0usize), |_| ParseExpr::Error)));
-    terminated(expr, preceded(expect(not(anychar), "expected EOF"), rest))(input)
+fn source_file(input: LocatedSpan) -> IResult<ParseBlock> {
+    let parse_block = alt((
+        block,
+        map(take(0usize), |_| ParseBlock {
+            let_bindings: vec![],
+            final_expr: ParseExpr::Error,
+        }),
+    ));
+    terminated(
+        parse_block,
+        preceded(expect(not(anychar), "expected EOF"), rest),
+    )(input)
 }
 
-pub fn parse<'a, 'state>(source: &'a str) -> (ParseExpr, Vec<ParseError>)
+pub fn parse<'a, 'state>(source: &'a str) -> (ParseBlock, Vec<ParseError>)
 where
     'state: 'a,
 {

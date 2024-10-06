@@ -66,6 +66,12 @@ impl<'a> State<'a> {
 }
 
 #[derive(Debug)]
+pub struct ParseBlock {
+    pub let_bindings: Vec<(Annotation, Option<String>, Option<ParseExpr>)>,
+    pub final_expr: ParseExpr,
+}
+
+#[derive(Debug)]
 pub enum ParseExpr {
     Ident {
         ann: Annotation,
@@ -80,12 +86,6 @@ pub enum ParseExpr {
         pred_expr: Box<ParseExpr>,
         then_expr: Box<ParseExpr>,
         else_expr: Box<ParseExpr>,
-    },
-    Let {
-        ann: Annotation,
-        var: Option<String>,
-        expr: Box<ParseExpr>,
-        rest: Box<ParseExpr>,
     },
     Ann {
         ann: Annotation,

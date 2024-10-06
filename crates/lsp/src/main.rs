@@ -135,7 +135,7 @@ struct CompileResult {
 
 fn compile(input: &str) -> CompileResult {
     let (parse_result, errors) = frame::parser::parse(input);
-    let result = frame::parser::to_real_expr(parse_result);
+    let result = frame::parser::parse_block_to_expr(parse_result);
 
     match result {
         Ok(input_expr) => {

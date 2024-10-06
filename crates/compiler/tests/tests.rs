@@ -122,7 +122,7 @@ fn test_parse() {
 
     for (input, expect) in tests {
         let (parse_result, _parse_errors) = frame::parser::parse(input);
-        let result = frame::parser::to_real_expr(parse_result);
+        let result = frame::parser::parse_block_to_expr(parse_result);
         let voided_result = result.map(void_expr);
         assert_eq!(voided_result, Ok(expect))
     }
@@ -153,7 +153,7 @@ fn test_typecheck_success() {
 
     for (input, expected) in tests {
         let (parse_result, _) = frame::parser::parse(input);
-        let input_expr = frame::parser::to_real_expr(parse_result).expect("parsing expr");
+        let input_expr = frame::parser::parse_block_to_expr(parse_result).expect("parsing expr");
 
         let (expected_parse_type, _) = frame::parser::parse_type(expected);
         let expected_type =
@@ -212,7 +212,7 @@ fn test_typecheck_failure() {
 
     for (input, expected_type_error) in tests {
         let (parse_result, _) = frame::parser::parse(input);
-        let input_expr = frame::parser::to_real_expr(parse_result).expect("parsing expr");
+        let input_expr = frame::parser::parse_block_to_expr(parse_result).expect("parsing expr");
 
         let result = frame::typecheck::infer(&input_expr, &mut vec![]);
 

@@ -2,7 +2,8 @@ watch:
     cargo watch -i "**/*.snap.new" \
       -x test \
       -x clippy \
-      -s 'cargo install --path ./crates/lsp'
+      -s 'cargo install --path ./crates/lsp' \
+      -s 'cargo install --path ./crates/compiler'
 
 format:
     cargo fmt --all
