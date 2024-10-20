@@ -1,0 +1,41 @@
+---
+source: crates/compiler/tests/tests.rs
+expression: parse_result
+---
+ParseBlock {
+    let_bindings: [
+        (
+            Annotation {
+                start: Position {
+                    offset: 0,
+                    row: 1,
+                    column: 1,
+                },
+                end: Position {
+                    offset: 10,
+                    row: 1,
+                    column: 11,
+                },
+            },
+            Some(
+                "a",
+            ),
+            Error,
+        ),
+    ],
+    final_expr: Ident {
+        ann: Annotation {
+            start: Position {
+                offset: 12,
+                row: 1,
+                column: 13,
+            },
+            end: Position {
+                offset: 13,
+                row: 1,
+                column: 14,
+            },
+        },
+        var: "a",
+    },
+}

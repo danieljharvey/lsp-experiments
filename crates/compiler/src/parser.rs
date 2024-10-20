@@ -105,7 +105,7 @@ fn parse_if_internal(input: LocatedSpan) -> IResult<ParsedIf> {
 }
 
 fn error(input: LocatedSpan) -> IResult<ParseExpr> {
-    map(take_till1(|c| c == ')'), |span: LocatedSpan| {
+    map(take_till1(|c| c == ')' || c == ';'), |span: LocatedSpan| {
         let err = ParseError {
             ann: span.to_annotation(),
             message: format!("unexpected `{}`", span.fragment()),
@@ -115,25 +115,42 @@ fn error(input: LocatedSpan) -> IResult<ParseExpr> {
     })(input)
 }
 
+fn skip_till_end_of_binding(input: LocatedSpan) -> IResult<(Option<String>, ParseExpr)> {
+    map(take_till1(|c| c == ';'), |span: LocatedSpan| {
+        let err = ParseError {
+            ann: span.to_annotation(),
+            message: format!("unexpected `{}`", span.fragment()),
+        };
+        span.extra.report_error(err);
+        (None, ParseExpr::Error)
+    })(input)
+}
+
 // our main Expr parser, basically, try all the parsers
 fn expr(input: LocatedSpan) -> IResult<ParseExpr> {
     alt((ann, prim, iff, ident, error))(input)
 }
 
-fn let_block_internal(input: LocatedSpan) -> IResult<(Option<String>, Option<ParseExpr>)> {
-    let (input, _) = ws(tag("let"))(input)?;
+// try to parse block, or return result of `error` parser, which
+// will eat until `;` so we can get on with our lives
+fn let_block_internal(input: LocatedSpan) -> IResult<(Option<String>, ParseExpr)> {
     let (input, ident) = expect(ws(ident_inner), "expected identifier")(input)?;
 
     let (input, _) = expect(ws(tag("=")), "expected '='")(input)?;
-    let (input, exp) = expect(expr, "expected expression after '='")(input)?;
+    let (input, exp) = expr(input)?;
 
     Ok((input, (ident, exp)))
 }
 
 fn block(input: LocatedSpan) -> IResult<ParseBlock> {
+    let let_binding_parser = with_annotation(preceded(
+        ws(tag("let")),
+        alt((let_block_internal, skip_till_end_of_binding)),
+    ));
+
     // optional list of let bindings
     let (input, let_bindings) = opt(terminated(
-        separated_list1(tag(";"), with_annotation(let_block_internal)),
+        separated_list1(tag(";"), let_binding_parser),
         tag(";"),
     ))(input)?;
 

@@ -67,7 +67,7 @@ impl<'a> State<'a> {
 
 #[derive(Debug)]
 pub struct ParseBlock {
-    pub let_bindings: Vec<(Annotation, Option<String>, Option<ParseExpr>)>,
+    pub let_bindings: Vec<(Annotation, Option<String>, ParseExpr)>,
     pub final_expr: ParseExpr,
 }
 

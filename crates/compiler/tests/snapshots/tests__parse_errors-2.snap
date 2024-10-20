@@ -41,11 +41,11 @@ expression: parse_errors
                 column: 1,
             },
             end: Position {
-                offset: 19,
+                offset: 16,
                 row: 1,
-                column: 20,
+                column: 17,
             },
         },
-        message: "unexpected `let False = True; a`",
+        message: "unexpected `let False = True`",
     },
 ]

@@ -1,4 +1,7 @@
 let var = True;
-let thing = !!;
+
+let horse = ????;
+
+let True = 100;
 
 if False then (2: Int64) else 3

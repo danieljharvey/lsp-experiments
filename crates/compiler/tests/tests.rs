@@ -130,7 +130,12 @@ fn test_parse() {
 
 #[test]
 fn test_parse_errors() {
-    let tests = vec!["let False = True; a", "if True then 1 else", "dog 1"];
+    let tests = vec![
+        "let False = True; a",
+        "if True then 1 else",
+        "dog 1",
+        "let a = !!; a",
+    ];
 
     for input in tests {
         let (parse_result, parse_errors) = frame::parser::parse(input);

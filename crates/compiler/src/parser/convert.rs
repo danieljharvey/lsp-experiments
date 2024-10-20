@@ -12,11 +12,10 @@ pub enum ParseConvertError {
 pub fn parse_block_to_expr(parse_block: ParseBlock) -> Result<Expr<Annotation>, ParseConvertError> {
     let mut final_expr = to_real_expr(parse_block.final_expr)?;
     for (ann, ident, exp) in parse_block.let_bindings {
-        let inner_expr = exp.ok_or(ParseConvertError::FoundError)?;
         final_expr = Expr::ELet {
             ann,
             var: ident.ok_or(ParseConvertError::MissingIdent)?,
-            expr: Box::new(to_real_expr(inner_expr)?),
+            expr: Box::new(to_real_expr(exp)?),
             rest: Box::new(final_expr.clone()),
         };
     }
