@@ -1,7 +1,3 @@
-let var = True;
+let horse = True;
 
-let horse = ????;
-
-let True = 100;
-
-if False then (2: Int64) else 3
+if horse then (2: Int64) else 3

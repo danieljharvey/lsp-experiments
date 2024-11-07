@@ -152,7 +152,6 @@ fn test_typecheck_success() {
         ("if True then False else True", "Boolean"),
         ("if True then (1: Int64) else 2", "Int64"),
         ("(if True then 1 else 2 : Int64)", "Int64"),
-        ("(dog: Int64)", "Int64"),
         ("let a = True; a", "Boolean"),
     ];
 
@@ -213,6 +212,32 @@ fn test_typecheck_failure() {
                 prim: Prim::IntLit(1),
             },
         ),
+        (
+            "let a = (1: Int64); if a then False else True",
+            TypeError::TypeMismatch {
+                expected: Type::TPrim {
+                    ann: (),
+                    type_prim: TypePrim::TBoolean,
+                },
+                actual: Type::TPrim {
+                    ann: (),
+                    type_prim: TypePrim::TInt64,
+                },
+            },
+        ),
+        (
+            "let a = True; (a: Int64)",
+            TypeError::TypeMismatch {
+                expected: Type::TPrim {
+                    ann: (),
+                    type_prim: TypePrim::TInt64,
+                },
+                actual: Type::TPrim {
+                    ann: (),
+                    type_prim: TypePrim::TBoolean,
+                },
+            },
+        ),
     ];
 
     for (input, expected_type_error) in tests {
@@ -223,7 +248,7 @@ fn test_typecheck_failure() {
 
         let type_error = match result {
             Err(e) => e,
-            Ok(_) => panic!("should not get here"),
+            Ok(_) => panic!("Input '{input}' succeeded and should have failed"),
         };
 
         assert_eq!(void_type_error(type_error.clone()), expected_type_error);

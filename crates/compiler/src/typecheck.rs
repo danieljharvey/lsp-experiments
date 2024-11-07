@@ -167,14 +167,6 @@ fn check<Ann: Clone>(
                 else_expr,
             },
         ) => check_if(Some(ty), ann, pred_expr, then_expr, else_expr, env),
-        (ty, Expr::EIdent { ann, var }) => {
-            // whatever the type sig says goes
-            let ty_ident = set_outer_type_annotation(ty, ann);
-            Ok(Expr::EIdent {
-                ann: ty_ident,
-                var: var.clone(),
-            })
-        }
         (Type::TPrim { type_prim, .. }, Expr::EPrim { prim, ann }) => {
             check_prim(ann, type_prim, prim)?;
             Ok(Expr::EPrim {
