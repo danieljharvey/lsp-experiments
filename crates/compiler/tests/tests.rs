@@ -1,5 +1,5 @@
 use frame::parser::constructors::{bool, int, mk_if};
-use frame::typecheck::TypeError;
+use frame::typecheck::{Env, TypeError};
 use frame::types::{Expr, Prim, Type, TypePrim};
 
 fn void_expr<Ann>(expr: Expr<Ann>) -> Expr<()> {
@@ -153,7 +153,7 @@ fn test_typecheck_success() {
         ("if True then (1: Int64) else 2", "Int64"),
         ("(if True then 1 else 2 : Int64)", "Int64"),
         ("(dog: Int64)", "Int64"),
-        //        ("let a = True; a", "Boolean"),
+        ("let a = True; a", "Boolean"),
     ];
 
     for (input, expected) in tests {
@@ -164,7 +164,7 @@ fn test_typecheck_success() {
         let expected_type =
             frame::parser::to_real_ty(Some(expected_parse_type)).expect("parsing type");
 
-        let typed_expr = frame::typecheck::infer(&void_expr(input_expr), &mut vec![])
+        let typed_expr = frame::typecheck::infer(&void_expr(input_expr), &mut Env::new())
             .expect("should have succeeded");
         let ty = frame::typecheck::get_outer_expr_annotation(&typed_expr);
 
@@ -219,7 +219,7 @@ fn test_typecheck_failure() {
         let (parse_result, _) = frame::parser::parse(input);
         let input_expr = frame::parser::parse_block_to_expr(parse_result).expect("parsing expr");
 
-        let result = frame::typecheck::infer(&input_expr, &mut vec![]);
+        let result = frame::typecheck::infer(&input_expr, &mut Env::new());
 
         let type_error = match result {
             Err(e) => e,

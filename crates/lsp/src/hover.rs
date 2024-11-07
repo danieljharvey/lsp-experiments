@@ -54,7 +54,7 @@ fn test_matches() {
     let (parse_expr, _) = frame::parser::parse("if True then (1: Int64)\nelse 2");
     let expr = frame::parser::parse_block_to_expr(parse_expr).expect("parsing expr");
 
-    let typed_expr = frame::typecheck::infer(&expr, &mut vec![]).unwrap();
+    let typed_expr = frame::typecheck::infer(&expr, &mut frame::typecheck::Env::new()).unwrap();
 
     let tests = vec![
         (0, 2, None),

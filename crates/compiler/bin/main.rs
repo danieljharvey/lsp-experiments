@@ -26,7 +26,7 @@ fn main() {
 
     let input_expr = frame::parser::parse_block_to_expr(parse_result).expect("parsing expr");
 
-    let result = frame::typecheck::infer(&input_expr, &mut vec![]);
+    let result = frame::typecheck::infer(&input_expr, &mut frame::typecheck::Env::new());
 
     match result {
         Ok(_) => {

@@ -3,7 +3,7 @@ mod hover;
 use dashmap::DashMap;
 use frame::{
     parser::Annotation,
-    typecheck::{TypeError, Warning},
+    typecheck::{Env, TypeError, Warning},
     types::{Expr, Type},
 };
 use std::sync::Arc;
@@ -141,13 +141,13 @@ fn compile(input: &str) -> CompileResult {
         Ok(input_expr) => {
             // todo, also add parser `errs` here too
             // as we may partially parse but still be able to typecheck some stuff
-            let mut type_warnings = vec![];
-            let expr_result = frame::typecheck::infer(&input_expr, &mut type_warnings)
+            let mut env = Env::new();
+            let expr_result = frame::typecheck::infer(&input_expr, &mut env)
                 .map_err(|e| CompileError::TypeError(Box::new(e)));
 
             CompileResult {
                 expr_result,
-                type_warnings,
+                type_warnings: env.warnings,
             }
         }
         Err(_) => CompileResult {
