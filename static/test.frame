@@ -1,3 +1,5 @@
 let horse = True;
 
-if horse then (2: Int64) else 3
+let f = (1: Int64);
+
+if f then (2: Int64) else 3

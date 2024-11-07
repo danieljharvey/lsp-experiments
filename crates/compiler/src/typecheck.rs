@@ -63,7 +63,7 @@ pub fn infer<Ann: Clone>(
         }
         Expr::EIdent { ann, var } => match env.lookup_variable(var) {
             Some(ty) => Ok(Expr::EIdent {
-                ann: ty.clone(),
+                ann: set_outer_type_annotation(ty, ann),
                 var: var.clone(),
             }),
             None => Err(TypeError::UnknownVariable {
