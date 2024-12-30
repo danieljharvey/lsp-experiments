@@ -1,6 +1,6 @@
 use frame::parser::constructors::{bool, int, mk_if};
 use frame::typecheck::{Env, TypeError};
-use frame::types::{Expr, Prim, Type, TypePrim};
+use frame::types::{Expr, Function, Prim, Type, TypePrim};
 
 fn void_expr<Ann>(expr: Expr<Ann>) -> Expr<()> {
     match expr {
@@ -38,6 +38,7 @@ fn void_type<Ann>(ty: Type<Ann>) -> Type<()> {
         Type::TPrim { type_prim, .. } => Type::TPrim { ann: (), type_prim },
     }
 }
+
 fn void_type_error<Ann>(type_error: TypeError<Ann>) -> TypeError<()> {
     match type_error {
         TypeError::TypeMismatch { expected, actual } => TypeError::TypeMismatch {
@@ -56,14 +57,38 @@ fn void_type_error<Ann>(type_error: TypeError<Ann>) -> TypeError<()> {
     }
 }
 
+fn void_function<Ann>(function: Function<Ann>) -> Function<()> {
+    Function {
+        name: function.name,
+        arguments: function
+            .arguments
+            .into_iter()
+            .map(|(name, ty)| (name, void_type(ty)))
+            .collect(),
+        return_type: function.return_type.map(void_type),
+        body: void_expr(function.body),
+    }
+}
+
 #[test]
 fn test_parse_function() {
-    let tests = vec![("fun main() { 1 }", int((), 1))];
+    let tests = vec![(
+        "fun main() { 1 }",
+        Function {
+            name: "main".into(),
+            arguments: vec![],
+            return_type: None,
+            body: Expr::EPrim {
+                ann: (),
+                prim: Prim::IntLit(1),
+            },
+        },
+    )];
 
     for (input, expect) in tests {
         let (parse_result, _parse_errors) = frame::parser::parse_function(input);
         let result = frame::parser::parse_function_to_function(parse_result);
-        let voided_result = result.map(void_expr);
+        let voided_result = result.map(void_function);
         assert_eq!(voided_result, Ok(expect))
     }
 }

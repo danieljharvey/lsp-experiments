@@ -8,7 +8,7 @@ mod convert;
 mod parse_error;
 mod types;
 use combinators::{expect, with_annotation, ws};
-pub use convert::{parse_block_to_expr, to_real_expr, to_real_ty};
+pub use convert::{parse_block_to_expr, parse_function_to_function, to_real_expr, to_real_ty};
 use nom::branch::alt;
 use nom::bytes::complete::{take, take_till1};
 use nom::character::complete::anychar;

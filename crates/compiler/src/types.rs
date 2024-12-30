@@ -52,10 +52,10 @@ impl<Ann> Display for &Type<Ann> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function<Ann> {
-    name: String,
-    arguments: Vec<(String, Type<Ann>)>,
-    return_type: Option<Type<Ann>>,
-    body: Expr<Ann>,
+    pub name: String,
+    pub arguments: Vec<(String, Type<Ann>)>,
+    pub return_type: Option<Type<Ann>>,
+    pub body: Expr<Ann>,
 }
 
 impl<Ann> Display for &Function<Ann> {
