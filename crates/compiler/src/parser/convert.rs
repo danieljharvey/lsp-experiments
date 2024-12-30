@@ -10,9 +10,24 @@ pub enum ParseConvertError {
 }
 
 pub fn parse_function_to_function(
-    _parse_function: ParseFunction,
+    parse_function: ParseFunction,
 ) -> Result<Function<Annotation>, ParseConvertError> {
-    todo!("parse_function_to_function")
+    Ok(Function {
+        name: parse_function.name,
+        arguments: parse_function
+            .arguments
+            .into_iter()
+            .map(|(name, ty)| {
+                (
+                    name,
+                    ty.ok_or(ParseConvertError::MissingTypeAnnotation)
+                        .map(|ty| to_real_ty(ty)?),
+                )
+            })
+            .collect(),
+        return_type: parse_function.return_type.map(|ty| Some(to_real_ty(ty)?)),
+        body: parse_block_to_expr(parse_function.block)?,
+    })
 }
 
 pub fn parse_block_to_expr(parse_block: ParseBlock) -> Result<Expr<Annotation>, ParseConvertError> {
