@@ -21,8 +21,8 @@ use nom::{
 pub use parse_error::to_report;
 use std::cell::RefCell;
 pub use types::{
-    Annotation, IResult, LocatedSpan, ParseBlock, ParseError, ParseExpr, ParseType, Position,
-    State, ToAnnotation,
+    Annotation, IResult, LocatedSpan, ParseBlock, ParseError, ParseExpr, ParseFunction, ParseType,
+    Position, State, ToAnnotation,
 };
 
 fn ident_inner(input: LocatedSpan) -> IResult<String> {
@@ -142,6 +142,21 @@ fn let_block_internal(input: LocatedSpan) -> IResult<(Option<String>, ParseExpr)
     Ok((input, (ident, exp)))
 }
 
+fn function(input: LocatedSpan) -> IResult<ParseFunction> {
+    let (input, name) = preceded(ws(tag("fun")), ident_inner)(input)?;
+
+    let (input, block) = block(input)?;
+    Ok((
+        input,
+        ParseFunction {
+            name,
+            arguments: vec![],
+            return_type: None,
+            block,
+        },
+    ))
+}
+
 fn block(input: LocatedSpan) -> IResult<ParseBlock> {
     let let_binding_parser = with_annotation(preceded(
         ws(tag("let")),
@@ -173,7 +188,24 @@ fn block(input: LocatedSpan) -> IResult<ParseBlock> {
 }
 
 // parse a whole source file
-fn source_file(input: LocatedSpan) -> IResult<ParseBlock> {
+fn source_file(input: LocatedSpan) -> IResult<ParseFunction> {
+    let parse_block = alt((
+        function,
+        map(take(0usize), |_| ParseFunction {
+            name: String::new(),
+            return_type: None,
+            arguments: vec![],
+            block: ParseBlock {
+                let_bindings: vec![],
+                final_expr: ParseExpr::Error,
+            },
+        }),
+    ));
+    terminated(parse_block, preceded(opt(not(anychar)), rest))(input)
+}
+
+// file with one expr in it
+fn source_block(input: LocatedSpan) -> IResult<ParseBlock> {
     let parse_block = alt((
         block,
         map(take(0usize), |_| ParseBlock {
@@ -184,13 +216,25 @@ fn source_file(input: LocatedSpan) -> IResult<ParseBlock> {
     terminated(parse_block, preceded(opt(not(anychar)), rest))(input)
 }
 
-pub fn parse<'a, 'state>(source: &'a str) -> (ParseBlock, Vec<ParseError>)
+pub fn parse_function<'a, 'state>(source: &'a str) -> (ParseFunction, Vec<ParseError>)
 where
     'state: 'a,
 {
     let errors = RefCell::new(vec![]);
     let input = LocatedSpan::new_extra(source, State(&errors));
-    let (_, expr) = all_consuming(source_file)(input).expect("parser cannot fail");
+    let (_, function) = all_consuming(source_file)(input).expect("parser cannot fail");
+    let copied_errors = errors.clone().into_inner().clone();
+
+    (function, copied_errors)
+}
+
+pub fn parse_expr<'a, 'state>(source: &'a str) -> (ParseBlock, Vec<ParseError>)
+where
+    'state: 'a,
+{
+    let errors = RefCell::new(vec![]);
+    let input = LocatedSpan::new_extra(source, State(&errors));
+    let (_, expr) = all_consuming(source_block)(input).expect("parser cannot fail");
     let copied_errors = errors.clone().into_inner().clone();
 
     (expr, copied_errors)

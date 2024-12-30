@@ -66,6 +66,14 @@ impl<'a> State<'a> {
 }
 
 #[derive(Debug)]
+pub struct ParseFunction {
+    pub name: String,
+    pub arguments: Vec<Option<(String, ParseType)>>,
+    pub return_type: Option<ParseType>,
+    pub block: ParseBlock,
+}
+
+#[derive(Debug)]
 pub struct ParseBlock {
     pub let_bindings: Vec<(Annotation, Option<String>, ParseExpr)>,
     pub final_expr: ParseExpr,

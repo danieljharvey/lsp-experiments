@@ -15,7 +15,7 @@ fn main() {
 
     let input = fs::read_to_string(args.file_path).expect("Should have been able to read the file");
 
-    let (parse_result, parse_errors) = frame::parser::parse(&input);
+    let (parse_result, parse_errors) = frame::parser::parse_expr(&input);
 
     for parse_error in parse_errors {
         let report = frame::parser::to_report(&parse_error);

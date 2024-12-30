@@ -1,12 +1,18 @@
-use super::types::{Annotation, ParseBlock, ParseExpr, ParseType};
+use super::types::{Annotation, ParseBlock, ParseExpr, ParseFunction, ParseType};
 
-use crate::types::{Expr, Type};
+use crate::types::{Expr, Function, Type};
 
 #[derive(Debug, PartialEq)]
 pub enum ParseConvertError {
     MissingIdent,
     FoundError,
     MissingTypeAnnotation,
+}
+
+pub fn parse_function_to_function(
+    _parse_function: ParseFunction,
+) -> Result<Function<Annotation>, ParseConvertError> {
+    todo!("parse_function_to_function")
 }
 
 pub fn parse_block_to_expr(parse_block: ParseBlock) -> Result<Expr<Annotation>, ParseConvertError> {

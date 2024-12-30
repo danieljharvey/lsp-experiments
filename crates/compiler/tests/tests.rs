@@ -57,7 +57,19 @@ fn void_type_error<Ann>(type_error: TypeError<Ann>) -> TypeError<()> {
 }
 
 #[test]
-fn test_parse() {
+fn test_parse_function() {
+    let tests = vec![("fun main() { 1 }", int((), 1))];
+
+    for (input, expect) in tests {
+        let (parse_result, _parse_errors) = frame::parser::parse_function(input);
+        let result = frame::parser::parse_function_to_function(parse_result);
+        let voided_result = result.map(void_expr);
+        assert_eq!(voided_result, Ok(expect))
+    }
+}
+
+#[test]
+fn test_parse_expr() {
     let tests = vec![
         (" 1", int((), 1)),
         ("1", int((), 1)),
@@ -121,7 +133,7 @@ fn test_parse() {
     ];
 
     for (input, expect) in tests {
-        let (parse_result, _parse_errors) = frame::parser::parse(input);
+        let (parse_result, _parse_errors) = frame::parser::parse_expr(input);
         let result = frame::parser::parse_block_to_expr(parse_result);
         let voided_result = result.map(void_expr);
         assert_eq!(voided_result, Ok(expect))
@@ -138,7 +150,7 @@ fn test_parse_errors() {
     ];
 
     for input in tests {
-        let (parse_result, parse_errors) = frame::parser::parse(input);
+        let (parse_result, parse_errors) = frame::parser::parse_expr(input);
         insta::assert_debug_snapshot!(parse_result);
         insta::assert_debug_snapshot!(parse_errors);
     }
@@ -156,7 +168,7 @@ fn test_typecheck_success() {
     ];
 
     for (input, expected) in tests {
-        let (parse_result, _) = frame::parser::parse(input);
+        let (parse_result, _) = frame::parser::parse_expr(input);
         let input_expr = frame::parser::parse_block_to_expr(parse_result).expect("parsing expr");
 
         let (expected_parse_type, _) = frame::parser::parse_type(expected);
@@ -241,7 +253,7 @@ fn test_typecheck_failure() {
     ];
 
     for (input, expected_type_error) in tests {
-        let (parse_result, _) = frame::parser::parse(input);
+        let (parse_result, _) = frame::parser::parse_expr(input);
         let input_expr = frame::parser::parse_block_to_expr(parse_result).expect("parsing expr");
 
         let result = frame::typecheck::infer(&input_expr, &mut Env::new());

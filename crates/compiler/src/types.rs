@@ -51,6 +51,27 @@ impl<Ann> Display for &Type<Ann> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct Function<Ann> {
+    name: String,
+    arguments: Vec<(String, Type<Ann>)>,
+    return_type: Option<Type<Ann>>,
+    body: Expr<Ann>,
+}
+
+impl<Ann> Display for &Function<Ann> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        write!(f, "fun {}(", self.name)?;
+        for (argument_name, ty) in &self.arguments {
+            write!(f, "{}: {}", argument_name, &ty)?;
+        }
+        if let Some(return_type) = &self.return_type {
+            write!(f, " -> {}", &return_type)?;
+        }
+        write!(f, "{{ {} }}", self.body)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr<Ann> {
     EIdent {
         ann: Ann,
